@@ -81,7 +81,11 @@ chain id `31337`, and one of the demo accounts listed when the node starts
 > never seen the local node, go to *Settings → Networks → Add network*:
 > chain id `31337`, RPC `http://127.0.0.1:8545`, currency ETH; then import one
 > of the accounts printed by `npm run node`. An error like *"missing revert
-> data"* mostly means "right chain, wrong state" or "still on another chain".
+> data"* or *"could not decode result data"* mostly means the running node was
+> restarted and is empty (a fresh Hardhat chain has no contracts): re-run
+> `npm run deploy:local` and `npm run seed`, or read `scripts/checkDemo.js`
+> (`npx hardhat run scripts/checkDemo.js --network localhost`) to see exactly
+> what is on the chain right now.
 
 What you can do in the UI: browse the herd, open a cow, read/start discussion
 threads, stake/unstake rating, boost (thumbs-up), mint a new cow, transfer one,
