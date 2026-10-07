@@ -82,7 +82,7 @@ export default function App() {
   async function onConnect() {
     setConnectError("");
     try {
-      const w = await connectWallet();
+      const w = await connectWallet(config.network);
       const c = getContracts(w.signer, config);
       const [r, stats] = await Promise.all([
         myReputation(c, w.account),

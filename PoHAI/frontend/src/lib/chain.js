@@ -4,6 +4,50 @@ import { DEFAULT_CONTRACTS, STATUS_NAMES } from "../config.js";
 
 export class ChainError extends Error {}
 
+// The chains this demo expects to run on. Keyed by the network name the deploy
+// script reports (see deployed.json / the agorá /api/config).
+export const CHAINS = {
+  hardhat: { chainId: 31337, name: "Hardhat local", rpc: "http://127.0.0.1:8545" },
+  localhost: { chainId: 31337, name: "Hardhat local", rpc: "http://127.0.0.1:8545" },
+  sepolia: { chainId: 11155111, name: "Sepolia", rpc: "https://1rpc.io/sepolia" },
+  amoy: { chainId: 80002, name: "Amoy", rpc: "https://rpc-amoy.polygon.technology" },
+};
+
+export function chainFor(network) {
+  return CHAINS[network] || CHAINS.hardhat;
+}
+
+async function rawChainId(provider) {
+  // Raw eth_chainId — reflects what the wallet is actually on right now,
+  // without ethers' cached-network surprises.
+  return Number(await provider.send("eth_chainId", []));
+}
+
+async function switchToChain(provider, chain) {
+  const hex = "0x" + chain.chainId.toString(16);
+  try {
+    await provider.send("wallet_switchEthereumChain", [{ chainId: hex }]);
+  } catch (err) {
+    // 4902 = the chain is not set up in this wallet yet; add it, then switch.
+    if (err?.code === 4902 || /Unrecognized chain|wallet_addEthereumChain/i.test(err?.message || "")) {
+      await provider.send("wallet_addEthereumChain", [
+        {
+          chainId: hex,
+          chainName: "Proof of a Hoof — " + chain.name,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: [chain.rpc],
+        },
+      ]);
+      await provider.send("wallet_switchEthereumChain", [{ chainId: hex }]);
+    } else {
+      throw new ChainError(
+        `This demo runs on the “${chain.name}” chain (id ${chain.chainId}). ` +
+          "Please switch your wallet to it in MetaMask and connect again."
+      );
+    }
+  }
+}
+
 export function applyDeployed(config) {
   // The server knows the freshly deployed addresses; fall back to local defaults.
   return {
@@ -12,15 +56,26 @@ export function applyDeployed(config) {
   };
 }
 
-export async function connectWallet() {
+export async function connectWallet(networkName = "hardhat") {
   if (!window.ethereum) {
     throw new ChainError("No wallet found. Install MetaMask (or another injected wallet).");
   }
   const provider = new BrowserProvider(window.ethereum);
-  const [account] = await provider.send("eth_requestAccounts", []);
+  await provider.send("eth_requestAccounts", []);
+
+  const target = chainFor(networkName);
+  if ((await rawChainId(provider)) !== target.chainId) {
+    await switchToChain(provider, target);
+    // Poll briefly for the switch to land (MetaMask fires chainChanged async).
+    for (let i = 0; i < 5; i++) {
+      if ((await rawChainId(provider)) === target.chainId) break;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
   const signer = await provider.getSigner();
-  const network = await provider.getNetwork();
-  return { provider, signer, account, chainId: Number(network.chainId) };
+  const account = await signer.getAddress();
+  return { provider, signer, account, chainId: await rawChainId(provider) };
 }
 
 export function getContracts(signer, config) {

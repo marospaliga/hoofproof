@@ -75,6 +75,14 @@ MetaMask needs the local chain added: network `http://127.0.0.1:8545`,
 chain id `31337`, and one of the demo accounts listed when the node starts
 (their private keys are printed by `npm run node`).
 
+> **I clicked Connect and got an error** — the app now auto-switches your wallet
+> to the chain the demo runs on (and offers to add it to MetaMask). If you
+> decline the switch, connect again after switching manually. If MetaMask has
+> never seen the local node, go to *Settings → Networks → Add network*:
+> chain id `31337`, RPC `http://127.0.0.1:8545`, currency ETH; then import one
+> of the accounts printed by `npm run node`. An error like *"missing revert
+> data"* mostly means "right chain, wrong state" or "still on another chain".
+
 What you can do in the UI: browse the herd, open a cow, read/start discussion
 threads, stake/unstake rating, boost (thumbs-up), mint a new cow, transfer one,
 report a funding need of zero (Hans starts with a real need of 500 so the
