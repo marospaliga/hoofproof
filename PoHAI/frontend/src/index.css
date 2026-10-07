@@ -205,3 +205,71 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px
 .status-Active { background: #123525; color: var(--accent); }
 .status-SelfSustaining { background: #10233c; color: var(--accent-2); }
 .status-Memorial { background: #3c1216; color: var(--danger); }
+
+/* ---- Phase C: evidence gallery, meters, profile ------------------------ */
+
+.thumb {
+  margin-left: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.thumb:hover { border-color: var(--accent); color: var(--accent); }
+.thumb:disabled { opacity: 0.5; cursor: default; }
+
+.meter {
+  height: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.gallery { display: flex; flex-direction: column; gap: 8px; }
+.ev-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+}
+.ev-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+  word-break: break-all;
+}
+.ev-link:hover { text-decoration: underline; }
+.ev-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-family: inherit;
+}
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }

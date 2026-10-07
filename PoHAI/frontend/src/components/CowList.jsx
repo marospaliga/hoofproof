@@ -1,4 +1,5 @@
-import { fmtDate, shortAddr } from "../config.js";
+import { fmtDate } from "../config.js";
+import Name from "./Name.jsx";
 
 function CowCard({ cow, onOpen }) {
   const status = `status-${cow.statusName}`;
@@ -9,7 +10,7 @@ function CowCard({ cow, onOpen }) {
       <div className="sub">
         {cow.breed}
         {cow.age ? ` · ${cow.age}y` : ""}{" "}
-        {cow.onChainOwner ? `· ${shortAddr(cow.onChainOwner)}` : ""}
+        {cow.onChainOwner ? <>· <Name address={cow.onChainOwner} /></> : ""}
       </div>
       <div className="inline mt12" style={{ gap: 6 }}>
         <span className={`badge ${status}`}>{cow.statusName}</span>

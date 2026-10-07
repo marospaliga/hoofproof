@@ -63,6 +63,26 @@ async function main() {
       `epochs=${epochs} platformValue=${platformValue}`
   );
 
+  // ---- Phase C: causes + movement cycle
+  const [eventCount, movement, credit, backers, raters] = await Promise.all([
+    generalPool.eventCount(),
+    generalPool.lastCycleMovement(),
+    generalPool.lastCycleCredit(),
+    generalPool.lastCycleBackers(),
+    generalPool.lastCycleRaters(),
+  ]);
+  console.log(
+    `causes: ${eventCount} · last cycle: field moved ${movement} → ${credit} pts credit ` +
+      `(${backers} backers, ${raters} raters)`
+  );
+  if (Number(eventCount) > 0) {
+    const e = await generalPool.events(1);
+    console.log(
+      `  cause #1 ${e.metadataCid} goal=${ethers.formatEther(e.goal)} ` +
+        `raised=${ethers.formatEther(e.raised)} spent=${ethers.formatEther(e.spent)}`
+    );
+  }
+
   const next = Number(await cowNFT.nextTokenId());
   console.log(`cows on chain: ${next - 1}`);
   for (let id = 1; id < next; id++) {

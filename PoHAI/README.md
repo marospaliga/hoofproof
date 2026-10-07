@@ -6,7 +6,8 @@ non-transferable score called **Stasis**. Built on an existing EVM network
 (testnet first: Sepolia or Amoy).
 
 This is the enhanced MVP from the architecture plan — the fluid rating core
-(Phase A) and the perks & collective layer (Phase B):
+(Phase A), the perks & collective layer (Phase B), and the identities, oracle
+evidence & charitable causes (Phase C):
 - **6 contracts**, Solidity 0.8 + OpenZeppelin 5, Hardhat JS, ethers v6.
 - **An agorá server** (`server/`, Express + JSON store) for the off-chain prose:
   cow metadata and the Steemit-style discussion threads.
@@ -36,9 +37,9 @@ layer concrete. Eventually a cow whose funding need stays at zero becomes
 |---|---|
 | `Stasis.sol` | Non-transferable reputation ledger. Gains capped at +10%/period, losses uncapped, genesis awards decay over a year, idle accounts decay lazily, bonded score is protected from decay. |
 | `CowNFT.sol` | ERC-721 cow records. Permissionless mint, born **Inert**; status (Inert → Active → SelfSustaining / Memorial) moves only through the rating engine. Herds, correctable metadata CID. |
-| `CowRating.sol` | The engine: conviction staking (with early-exit penalty), concentration caps, the **voting-power** thumbs-up (cows + images + posts, content folds into the cow's rating), **ethical momentum** (activity decays over 90d, 1x–1.5x on votes and stakes), **sweat-equity rewards** scaled by the project's rating, herd bonuses, the funding-need lifecycle, and the rated transfer handshake. |
+| `CowRating.sol` | The engine: conviction staking (with early-exit penalty), concentration caps, the **voting-power** thumbs-up (cows + images + posts, content folds into the cow's rating), **ethical momentum** (activity decays over 90d, 1x–1.5x on votes and stakes), **sweat-equity rewards** scaled by the project's rating, an active-rater registry that the cycle credit reads, herd bonuses, the funding-need lifecycle, and the rated transfer handshake. |
 | `Attestation.sol` | Staked testimony: bonded claims about the real world. Quorum executes (death → Memorial, sale → offline transfer, funding → lifecycle, **Labor** → sweat-equity award). Disputes are resolved by the pilot operator in the MVP. |
-| `GeneralPool.sol` | The "genesis pool": **Rajas** spendable action-credits with Sattva↔Rajas conversion, the momentum-scaled **gas rebate** (more reputation → the pool pays more of your gas), the voluntary no-yield **care pool** per cow, and the platform **value index** (backing / rating / Stasis / Rajas / active cows per epoch). |
+| `GeneralPool.sol` | The "genesis pool": **Rajas** spendable action-credits with Sattva↔Rajas conversion, the momentum-scaled **gas rebate** (more reputation → the pool pays more of your gas), the voluntary no-yield **care pool** per cow, the platform **value index** (backing / rating / Stasis / Rajas / active cows per epoch), **charitable causes** (GoFundMe-style escrow: anyone opens a cause, backers contribute ether, the creator releases it toward the real goal), and the **movement cycle**: `settleCycle()` measures the field's positive growth since the last settle and pays a gain-capped credit pool (`backerShareBps` to that cycle's backers pro rata by contribution, the rest to its active raters pro rata by activity) — **rating flows only when the whole field demonstrably moved, never when you pay**. |
 | `HerdCouncil.sol` | Reputation-weighted proposals per herd: off-chain body → on-chain hash, member votes weighted by the rating of their own cows in the herd × momentum, on-chain tally with execution signals only. |
 | `interfaces/ITransferValidator.sol` | The seam CowNFT uses to ask CowRating whether a transfer may happen. |
 
@@ -74,8 +75,9 @@ CowRating.setWiring(CowNFT, Attestation)
 ```bash
 npm install
 npm install --prefix frontend
-npm test                 # 53 tests: score math, caps, staking, disputes, lifecycle,
-                         # voting power, momentum, sweat equity, pool, council
+npm test                 # 61 tests: score math, caps, staking, disputes, lifecycle,
+                         # voting power, momentum, sweat equity, pool, council,
+                         # causes + cycle credit
 
 npm run dev              # one command: hardhat node + agora server + vite dev server
 # in a second terminal, the first time only:
@@ -107,7 +109,12 @@ hours for sweat equity, convert Sattva↔Rajas, claim the momentum-scaled gas
 rebate, mint a new cow, transfer one, report a funding need of zero (Hans
 starts with a real need of 500 so the solver-credit lifecycle is demoable),
 report a death, and — for cows in a herd — propose and vote on HerdCouncil
-proposals (weight = your cows' rating in that herd × momentum). The herd page
+proposals (weight = your cows' rating in that herd × momentum). Phase C adds:
+claim a **profile** (name / bio / avatar / links) shown across threads, votes
+and cards; upload **wallet-signed evidence** on any cow (photos, vet records,
+receipts) which raters can then rate; open or back a **charitable cause** and
+watch the **movement cycle** settle — backers and this cycle's active raters
+share a credit pool sized by how much the whole field grew. The herd page
 also links to an embedded copy of the whitepaper
 (`frontend/public/whitepaper.pdf`, a copy of `ProofOfAHoof.pdf`) with its
 references.
@@ -158,6 +165,11 @@ These are the design's spine; every contract enforces a slice of them:
     and bypasses the handshake — reality already happened.
 12. **Nothing ticks on its own.** All decay is lazy: computed on read,
     persisted only when the account acts.
+13. **Credit follows the field, never the cheque.** Backing a cause earns no
+    instant rating. Once per cycle the pool measures how much the whole
+    ecosystem grew and thanks that cycle's contributors *and* active raters
+    from a gain-capped pool — a big donation only buys a share of a gift that
+    exists only if the field actually moved.
 
 ## Where the MVP plays it safe (pilot-era changes)
 
@@ -179,6 +191,11 @@ with the piece that replaces it later:
   off-chain (IPFS CID + app database); the chain keeps the rating history.
 - **`Attestation._findOpen` linearly scans** claims. Fine for a demo with
   dozens; needs an index before a real pilot.
+- **The movement cycle is open-called and short.** Anyone may `settleCycle()`
+  (like `snapshotIndex`), and the demo runs a 6 h period purely to show the
+  loop; the owner re-tunes `cyclePeriod` / `backerShareBps` /
+  `creditRatioBps` / `maxCycleCredit` before a pilot. Missed settles roll
+  contributions into the next window.
 - **Real money / shares are out of scope.** The NFT share market (revenue
   rights) is a separate contract family, deliberately not in the MVP. The care
   pool is strictly voluntary and no-yield accounting.
@@ -203,9 +220,14 @@ with the piece that replaces it later:
    voluntary no-yield care pool, platform value index), `HerdCouncil`
    (reputation-weighted proposals + on-chain tally), and record-level
    visibility (`private/internal/external/public`, server-enforced first).
-5. ⏭ Sepolia/Amoy demo deployment with ~10 synthetic cows (`npm run
+5. ✅ Phase C — identities, oracle evidence & charitable causes: per-wallet
+   profiles and activity feeds on the agorá; signature-verified evidence
+   uploads (multipart + EIP-191) that raters can thumbs-up on-chain; causes
+   escrowed in the `GeneralPool` with a movement-driven cycle credit for
+   backers and active raters (no rating is ever bought with money).
+6. ⏭ Sepolia/Amoy demo deployment with ~10 synthetic cows (`npm run
    deploy:sepolia`/`deploy:amoy`; needs `.env` RPC + private key).
-6. ⏭ Pilot: parameterise a verifier and the funding till; migrate the
+7. ⏭ Pilot: parameterise a verifier and the funding till; migrate the
    versioned parameters and constants to constructor/config values; replace the
    single-owner dispute key with a multisig; move the gas subsidy from a
    claimable rebate to a sponsored-transaction relayer.

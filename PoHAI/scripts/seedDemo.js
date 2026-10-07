@@ -12,6 +12,7 @@ const hre = require("hardhat");
 const { ethers } = hre;
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const API = process.env.SEED_API || "http://localhost:3001";
 const ZERO = ethers.ZeroAddress;
@@ -133,8 +134,92 @@ async function main() {
     console.warn("Phase A+B demo layer skipped:", e.message);
   }
 
+  // ---- Phase C demo layer -------------------------------------------------
+  // Profiles, a charitable cause, and the movement cycle in action: the pool
+  // settles once to prime its baseline, the field moves (two raters stay
+  // active), and the next settle pays backers + raters from that movement.
+  try {
+    console.log("Phase C demo layer (profiles, causes, cycle credit)…");
+
+    // Claim names for the demo raters so threads and evidence read naturally.
+    const named = [
+      [r1, "Maros the Keeper"],
+      [r2, "Anna the Vet"],
+      [r3, "Jonas the Feeder"],
+    ];
+    for (const [r, name] of named) {
+      await fetch(`${API}/api/profiles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: r.address,
+          name,
+          bio: "A founding rater on the Proof of a Hoof demo.",
+        }),
+      });
+    }
+
+    // A charitable cause, backed by two raters (money sits in escrow — no
+    // instant rating for it).
+    await generalPool.createEvent("ipfs://event-bedding", ethers.parseEther("0.5"));
+    const eventId = Number(await generalPool.eventCount());
+    await fetch(`${API}/api/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId: String(eventId),
+        title: "Winter bedding for the herd",
+        description: "Straw, blankets and rubber mats so the calves stay warm through winter.",
+        goal: ethers.parseEther("0.5").toString(),
+      }),
+    });
+    await generalPool.connect(r2).contribute(eventId, { value: ethers.parseEther("0.2") });
+    await generalPool.connect(r3).contribute(eventId, { value: ethers.parseEther("0.2") });
+
+    // r2 uploads a wallet-signed evidence photo on Blossom (tokenId 1): the
+    // agent hashes the file, r2 signs the content hash, and the server keeps
+    // the file in its uploads dir + points the oracle record at it.
+    const blossom = (await (await fetch(`${API}/api/cows`)).json()).find((c) => c.tokenId === 1);
+    if (blossom) {
+      const photo = Buffer.from(
+        `demo photo: winter bedding straw bales outside the stable (seeded ${Date.now()})`
+      );
+      const hash = crypto.createHash("sha256").update(photo).digest("hex");
+      const signature = await r2.signMessage(`evidence:${hash}`);
+      const form = new FormData();
+      form.append("file", new Blob([photo], { type: "image/png" }), "bedding.png");
+      form.append("address", r2.address);
+      form.append("signature", signature);
+      form.append("note", "winter bedding straw bales");
+      await fetch(`${API}/api/cows/${encodeURIComponent(blossom.cid)}/evidence`, {
+        method: "POST",
+        body: form,
+      });
+    }
+
+    // Prime the cycle baseline, let the field move (active raters), then settle.
+    await generalPool.settleCycle();
+    await cowRating.connect(r1).boost(1, GENERAL, 1_000);
+    await cowRating.connect(r2).boost(1, GENERAL, 1_000);
+    await hre.network.provider.send("evm_increaseTime", [13 * 60 * 60]);
+    await hre.network.provider.send("evm_mine", []);
+    await generalPool.settleCycle();
+
+    const [movement, credit, backers] = await Promise.all([
+      generalPool.lastCycleMovement(),
+      generalPool.lastCycleCredit(),
+      generalPool.lastCycleBackers(),
+    ]);
+    console.log(
+      `  cause #${eventId} backed by r2+r3 · cycle paid ${credit} pts for ${movement} of field movement` +
+        ` (${backers} backers)`
+    );
+  } catch (e) {
+    console.warn("Phase C demo layer skipped:", e.message);
+  }
+
   console.log("\nDone. Run `npm run frontend` and open http://localhost:5173");
-  console.log("(chain clock advanced +31 days so the funding lifecycle is demoable)");
+  console.log("(chain clock advanced +31 days + a cycle so the funding lifecycle and movement cycle are demoable)");
 }
 
 async function applyPlan(plan, tokenId, c) {

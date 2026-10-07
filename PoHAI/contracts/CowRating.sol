@@ -114,6 +114,13 @@ contract CowRating is Ownable, ITransferValidator {
     mapping(address => uint256) public activity;
     mapping(address => uint256) public activityAt;
 
+    /// Accounts that ever touched the activity ledger, in first-touch order.
+    /// The GeneralPool cycle credit enumerates this registry and measures each
+    /// rater's activity *delta* since the previous settle — so being active is
+    /// what qualifies for the cycle thank-you, not holding a big score.
+    address[] private _activeAccounts;
+    mapping(address => bool) private _seenAccount;
+
     // ---- platform-level aggregates (consumed by the GeneralPool value index)
     uint256 public totalBacking;
     uint256 public totalRatingPoints;
@@ -276,6 +283,10 @@ contract CowRating is Ownable, ITransferValidator {
 
     function _touchActivity(address account, uint256 points) internal {
         if (points == 0) return;
+        if (!_seenAccount[account]) {
+            _seenAccount[account] = true;
+            _activeAccounts.push(account);
+        }
         uint256 current = _activityAt(account);
         uint256 next = current + points;
         if (next > maxActivityPoints) next = maxActivityPoints;
@@ -289,6 +300,22 @@ contract CowRating is Ownable, ITransferValidator {
         if (bonus > maxActivityPoints) bonus = maxActivityPoints;
         uint256 headroom = momentumMaxBps - momentumMinBps;
         return momentumMinBps + (headroom * bonus) / maxActivityPoints;
+    }
+
+    /// @notice Public read of the (decayed) activity ledger. The GeneralPool
+    ///         uses it to size each rater's share of the cycle credit: share ∝
+    ///         how much their activity moved *since the previous settle*.
+    function activityPoints(address account) public view returns (uint256) {
+        return _activityAt(account);
+    }
+
+    /// @notice Number of accounts that ever touched the activity ledger.
+    function activeAccountCount() external view returns (uint256) {
+        return _activeAccounts.length;
+    }
+
+    function activeAccounts(uint256 i) external view returns (address) {
+        return _activeAccounts[i];
     }
 
     // ----------------------------------------------------------------- voting

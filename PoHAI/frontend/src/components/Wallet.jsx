@@ -1,13 +1,14 @@
-import { shortAddr } from "../config.js";
+import Name from "./Name.jsx";
 
 export default function Wallet({ wallet, error, onConnect, onDisconnect }) {
   return (
     <div className="inline">
       {wallet ? (
         <>
-          <span className="net">
-            {shortAddr(wallet.account)}{" "}
-            <span className="muted">· chain {wallet.chainId}</span>
+          <Name address={wallet.account} className="net" />
+          <span className="muted">
+            {" "}
+            <span className="net">chain {wallet.chainId}</span>
           </span>
           <button onClick={onDisconnect}>Disconnect</button>
         </>

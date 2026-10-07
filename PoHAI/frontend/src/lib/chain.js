@@ -110,6 +110,12 @@ export function friendlyError(err) {
     VotingClosed: "The vote window has closed (or the proposal does not exist yet).",
     AlreadyProposed: "A proposal with this hash already exists.",
     NotExecutable: "This proposal cannot be finalized (unknown or already decided).",
+    NoSuchEvent: "That cause does not exist on-chain.",
+    EventClosed: "That cause has been closed by its creator.",
+    NotEventCreator: "Only the creator of a cause can release its escrow.",
+    CannotSpend: "A cause can only release what was actually raised.",
+    CycleNotElapsed: "The cycle has not rolled over yet — settle again after the period.",
+    EmptyCid: "A metadata reference (cid) is required for the cause.",
   };
 
   if (name && known[name]) return known[name];
@@ -274,6 +280,107 @@ export async function claimGasRebate(contracts) {
   await tx.wait();
 }
 
+// ---------------------------------------------------------- fund events / cycles ---
+
+export async function createFundEvent(contracts, cid, goalWei) {
+  const tx = await contracts.generalPool.createEvent(cid, goalWei);
+  const rc = await tx.wait();
+  const iface = contracts.generalPool.interface;
+  for (const log of rc.logs) {
+    try {
+      const parsed = iface.parseLog(log);
+      if (parsed && parsed.name === "FundEventCreated") return Number(parsed.args.id);
+    } catch {
+      /* not our event */
+    }
+  }
+  throw new ChainError("Event created but its id could not be read.");
+}
+
+export async function contributeEvent(contracts, eventId, valueWei) {
+  const tx = await contracts.generalPool.contribute(eventId, { value: valueWei });
+  await tx.wait();
+  return valueWei;
+}
+
+export async function spendEvent(contracts, eventId, amountWei, to) {
+  const tx = await contracts.generalPool.spend(eventId, amountWei, to);
+  await tx.wait();
+}
+
+export async function closeEventAction(contracts, eventId) {
+  const tx = await contracts.generalPool.closeEvent(eventId);
+  await tx.wait();
+}
+
+export async function settleCycle(contracts) {
+  const tx = await contracts.generalPool.settleCycle();
+  await tx.wait();
+}
+
+export async function listFundEvents(contracts) {
+  const count = Number(await contracts.generalPool.eventCount());
+  const rows = [];
+  for (let id = 1; id <= count; id++) {
+    const e = await contracts.generalPool.events(id);
+    rows.push({
+      id: Number(e.id),
+      creator: e.creator,
+      metadataCid: e.metadataCid,
+      goal: e.goal.toString(),
+      raised: e.raised.toString(),
+      spent: e.spent.toString(),
+      closed: e.closed,
+    });
+  }
+  return rows;
+}
+
+export async function cycleState(contracts) {
+  const g = contracts.generalPool;
+  const [
+    period,
+    share,
+    ratio,
+    cap,
+    lastAt,
+    movement,
+    credit,
+    backerShare,
+    raterShare,
+    backers,
+    raters,
+    raised,
+  ] = await Promise.all([
+    g.cyclePeriod(),
+    g.backerShareBps(),
+    g.creditRatioBps(),
+    g.maxCycleCredit(),
+    g.lastCycleAt(),
+    g.lastCycleMovement(),
+    g.lastCycleCredit(),
+    g.lastCycleBackerShare(),
+    g.lastCycleRaterShare(),
+    g.lastCycleBackers(),
+    g.lastCycleRaters(),
+    g.cycleRaised(),
+  ]);
+  return {
+    period: Number(period),
+    share: Number(share),
+    ratio: Number(ratio),
+    cap: Number(cap),
+    lastAt: Number(lastAt),
+    movement: Number(movement),
+    credit: Number(credit),
+    backerShare: Number(backerShare),
+    raterShare: Number(raterShare),
+    backers: Number(backers),
+    raters: Number(raters),
+    raised: raised.toString(),
+  };
+}
+
 // ------------------------------------------------------------------ council ---
 
 // A hash of the proposal body (posted off-chain) serves as the on-chain id.
@@ -284,6 +391,25 @@ export function councilHash(text) {
 // Content (a post or image) is identified the same way: hash of its id.
 export function contentHash(text) {
   return keccak256(toUtf8Bytes(text));
+}
+
+// Wallet-sign a plain-text message (evidence files use `evidence:<sha256>`).
+export async function signMessage(contracts, message) {
+  const runner = contracts.stasis.runner;
+  if (!runner || typeof runner.signMessage !== "function") {
+    throw new ChainError("Connect your wallet to sign evidence.");
+  }
+  return runner.signMessage(message);
+}
+
+// Browser SHA-256 of an uploaded file, hex with a `0x` prefix to match the
+// convention used elsewhere in the app.
+export async function sha256Hex(buffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `0x${hex}`;
 }
 
 export async function proposeCouncil(contracts, herdId, text, durationDays = 3) {

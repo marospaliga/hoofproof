@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { fmtDate, shortAddr } from "../config.js";
 import { api } from "../lib/api.js";
+import Name from "./Name.jsx";
 import {
   stake,
   unstake,
   boost,
   voteContent,
   contentHash,
+  sha256Hex,
+  signMessage,
   transferCow,
   attestDeath,
   attestFundingNeed,
@@ -215,6 +218,56 @@ function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
   );
 }
 
+// Thumbs for an uploaded evidence file (kind 1 = Image in the VoteKind enum).
+// The signature-verification happened at upload time; rating it is simply
+// rating authentic documentation of the cow.
+function EvidenceThumb({ tokenId, ev, contracts, account, notify, refresh }) {
+  const [rating, setRating] = useState(null);
+  const [forHash, setForHash] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const hash = contentHash("evidence:" + ev.hash);
+
+  if (hash !== forHash) {
+    setForHash(hash);
+    if (!contracts) {
+      setRating(null);
+    } else {
+      contracts.cowRating
+        .contentRatingOf(tokenId, 1, hash)
+        .then((r) => setRating(Number(r)))
+        .catch(() => setRating(0));
+    }
+  }
+
+  async function thumb() {
+    if (!account) return notify("Connect a wallet to rate evidence.", "error");
+    setBusy(true);
+    try {
+      await voteContent(contracts, tokenId, 1, hash, 1000);
+      setRating((rating || 0) + 1);
+      notify("Evidence rated — authenticity feeds the cow's rating.");
+      await api.logActivity(account, "evidence-thumb", "Rated an evidence file");
+      refresh();
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      className="thumb"
+      disabled={busy || !contracts}
+      onClick={thumb}
+      title="Thumbs-up this evidence file: the verified weight is added to the cow."
+    >
+      👍 {rating ?? "…"}
+    </button>
+  );
+}
+
 function Threads({ cow, contracts, account, refresh, notify }) {
   const [title, setTitle] = useState("");
   const [posts, setPosts] = useState({}); // threadId -> draft text
@@ -223,7 +276,8 @@ function Threads({ cow, contracts, account, refresh, notify }) {
     e.preventDefault();
     if (!title.trim()) return;
     try {
-      await api.createThread(cow.cid, title.trim(), shortAddr(account));
+      await api.createThread(cow.cid, title.trim(), account);
+      if (account) await api.logActivity(account, "thread", `Opened “${title.trim()}” on ${cow.name}`);
       setTitle("");
       notify("Thread opened.");
       refresh();
@@ -235,7 +289,8 @@ function Threads({ cow, contracts, account, refresh, notify }) {
   async function newPost(tid, text) {
     if (!text.trim()) return;
     try {
-      await api.createPost(cow.cid, tid, text.trim(), shortAddr(account));
+      await api.createPost(cow.cid, tid, text.trim(), account);
+      if (account) await api.logActivity(account, "post", `Commented on ${cow.name}`);
       setPosts({ ...posts, [tid]: "" });
       notify("Post added.");
       refresh();
@@ -302,6 +357,8 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   const [rajasAmount, setRajasAmount] = useState("");
   const [toAddr, setToAddr] = useState("");
   const [busy, setBusy] = useState("");
+  const [evidenceNote, setEvidenceNote] = useState("");
+  const fileRef = useRef(null);
 
   const tokenId = cow.tokenId;
 
@@ -310,6 +367,34 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
     try {
       await fn();
       notify(`${label} done.`);
+      await refresh();
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function uploadEvidence(e) {
+    e.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) return notify("Choose a file first.", "error");
+    if (!account) return notify("Connect a wallet to sign evidence.", "error");
+    setBusy("Upload");
+    try {
+      const buf = await file.arrayBuffer();
+      const hash = await sha256Hex(buf);
+      const signature = await signMessage(contracts, `evidence:${hash}`);
+      const form = new FormData();
+      form.append("file", file);
+      form.append("address", account);
+      form.append("signature", signature);
+      form.append("note", evidenceNote);
+      await api.uploadEvidence(cow.cid, form);
+      await api.logActivity(account, "evidence", `Signed evidence “${file.name}” on ${cow.name}`);
+      setEvidenceNote("");
+      if (fileRef.current) fileRef.current.value = "";
+      notify("Evidence uploaded — wallet signature verified.");
       await refresh();
     } catch (err) {
       notify(friendlyError(err), "error");
@@ -331,7 +416,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
             </h2>
             <div className="muted">
               {cow.breed}
-              {cow.age ? ` · ${cow.age} years` : ""} · {shortAddr(cow.onChainOwner)}
+              {cow.age ? ` · ${cow.age} years` : ""} · <Name address={cow.onChainOwner} />
             </div>
             {cow.story && <p className="mt12">{cow.story}</p>}
           </div>
@@ -524,6 +609,48 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                   {busy === "Convert" ? "…" : "Rajas → Sattva"}
                 </button>
               </div>
+            </div>
+
+            <div className="mt12 panel inset">
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                🏷️ Oracle evidence — upload signed proof (photos, vet records,
+                receipts). Your wallet signs the file's content hash; raters can
+                then rate it, and each verified rating feeds this cow.
+              </div>
+              <form onSubmit={uploadEvidence} className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <input ref={fileRef} type="file" style={{ maxWidth: 220 }} />
+                <input
+                  value={evidenceNote}
+                  onChange={(e) => setEvidenceNote(e.target.value)}
+                  placeholder="what does this prove?"
+                  style={{ flex: 1, minWidth: 160 }}
+                />
+                <button className="primary" type="submit" disabled={busy === "Upload" || !account}>
+                  {busy === "Upload" ? "…" : "Upload + sign"}
+                </button>
+              </form>
+              {(cow.evidence || []).length > 0 && (
+                <div className="gallery mt12">
+                  {(cow.evidence || []).map((ev) => (
+                    <div key={ev.hash} className="ev-card">
+                      <a href={ev.url} target="_blank" rel="noreferrer" className="ev-link" title={ev.fileName}>
+                        {/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(ev.url) ? "🖼️" : "📎"} {ev.note || ev.fileName}
+                      </a>
+                      <div className="ev-meta">
+                        by <Name address={ev.uploader} />
+                        <EvidenceThumb
+                          tokenId={tokenId}
+                          ev={ev}
+                          contracts={contracts}
+                          account={account}
+                          notify={notify}
+                          refresh={refresh}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="mt12">

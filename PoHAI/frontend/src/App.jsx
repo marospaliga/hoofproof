@@ -4,6 +4,8 @@ import CowList from "./components/CowList.jsx";
 import CowDetail from "./components/CowDetail.jsx";
 import MintModal from "./components/MintModal.jsx";
 import Docs from "./components/Docs.jsx";
+import Events from "./components/Events.jsx";
+import Profile from "./components/Profile.jsx";
 import { api } from "./lib/api.js";
 import {
   applyDeployed,
@@ -22,7 +24,7 @@ export default function App() {
   const [rep, setRep] = useState({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, rajas: 0 });
   const [cows, setCows] = useState([]);
   const [selectedCid, setSelectedCid] = useState(null);
-  const [view, setView] = useState("herd"); // "herd" | "docs"
+  const [view, setView] = useState("herd"); // "herd" | "docs" | "events" | "profile"
   const [showMint, setShowMint] = useState(false);
   const [notice, setNotice] = useState(null);
   const [connectError, setConnectError] = useState("");
@@ -110,6 +112,7 @@ export default function App() {
       setWallet(w);
       setContracts(c);
       setRep(r);
+      api.logActivity(w.account, "wallet", "Connected").catch(() => {});
       notify("Wallet connected. Your Stasis: " + r.score);
     } catch (err) {
       setConnectError(friendlyError(err));
@@ -166,6 +169,23 @@ export default function App() {
         </a>
         <span className="muted" style={{ fontSize: 13 }}>testnet demo</span>
         <div className="spacer" />
+        <button
+          onClick={() => {
+            setSelectedCid(null);
+            setView("events");
+          }}
+        >
+          🎗️ Causes
+        </button>
+        <button
+          onClick={() => {
+            setSelectedCid(null);
+            if (wallet) setView("profile");
+            else notify("Connect a wallet to open your profile.", "error");
+          }}
+        >
+          👤 Profile
+        </button>
         <span className="net">{config.network}</span>
         <Wallet
           wallet={wallet}
@@ -178,6 +198,17 @@ export default function App() {
       <div className="container">
         {loading ? (
           <div className="loading">Loading the herd…</div>
+        ) : view === "events" ? (
+          <Events contracts={contracts} account={wallet?.account} notify={notify} />
+        ) : view === "profile" ? (
+          <Profile
+            address={wallet?.account}
+            contracts={contracts}
+            account={wallet?.account}
+            rep={rep}
+            cows={cows}
+            notify={notify}
+          />
         ) : detailCow ? (
           <CowDetail
             cow={detailCow}
