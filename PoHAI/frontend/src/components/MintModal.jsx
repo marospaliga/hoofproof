@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api.js";
-import { mintCow } from "../lib/chain.js";
+import { mintCow, friendlyError } from "../lib/chain.js";
 
 const EMOJIS = ["🐄", "🐂", "🐃", "🟤", "🔵"];
 
@@ -33,7 +33,7 @@ export default function MintModal({ contracts, account, onClose, onMinted, notif
       notify(`Cow #${tokenId} minted. Now it needs raters to become Active.`);
       onMinted();
     } catch (err) {
-      notify(err.shortMessage || err.message, "error");
+      notify(friendlyError(err), "error");
     } finally {
       setBusy(false);
     }

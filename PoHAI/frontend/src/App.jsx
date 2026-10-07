@@ -10,6 +10,7 @@ import {
   getContracts,
   enrichCow,
   myReputation,
+  friendlyError,
 } from "./lib/chain.js";
 import { DEFAULT_CONTRACTS } from "./config.js";
 
@@ -19,12 +20,13 @@ export default function App() {
   const [contracts, setContracts] = useState(null);
   const [rep, setRep] = useState({ score: 0, bonded: 0 });
   const [cows, setCows] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [selectedCid, setSelectedCid] = useState(null);
   const [showMint, setShowMint] = useState(false);
   const [notice, setNotice] = useState(null);
   const [connectError, setConnectError] = useState("");
   const [loading, setLoading] = useState(true);
   const noticeTimer = useRef(null);
+  const inFlight = useRef(false);
 
   const notify = useCallback((message, kind = "success") => {
     setNotice({ message, kind });
@@ -37,11 +39,15 @@ export default function App() {
     api
       .config()
       .then((cfg) => setConfig(applyDeployed(cfg)))
-      .catch(() => setConfig(DEFAULT_CONTRACTS));
+      .catch(() => {});
   }, []);
 
   // Read the off-chain cow list, merging on-chain stats when connected.
+  // Navigation state is a cid, not the cow object — refresh() only updates the
+  // list, so it never fights a "back" click.
   const refresh = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       const records = await api.listCows();
       let enriched = records;
@@ -56,35 +62,41 @@ export default function App() {
           })
         );
       }
-      // Keep the app usable without a wallet: mark stats pending.
-      const displayed = enriched.map((c) => ({
-        ...c,
-        rating: c.rating ?? "—",
-        backing: c.backing ?? "—",
-        statusName: c.statusName || "no chain",
-      }));
-      setCows(displayed);
-      if (selected) {
-        const fresh = displayed.find((c) => c.cid === selected.cid);
-        setSelected(fresh || selected);
-      }
+      setCows(
+        enriched.map((c) => ({
+          ...c,
+          rating: c.rating ?? "—",
+          backing: c.backing ?? "—",
+          statusName: c.statusName || "no chain",
+        }))
+      );
     } catch (err) {
       notify("Could not reach the agorá server (npm run server).", "error");
     } finally {
       setLoading(false);
+      inFlight.current = false;
     }
-  }, [contracts, selected, notify]);
+  }, [contracts, notify]);
 
   useEffect(() => {
     refresh();
-  }, [refresh, wallet]);
+  }, [refresh]);
+
+  // The opened cow is *derived* from the list, so it stays live without any
+  // feedback loop.
+  const detailCow = selectedCid ? cows.find((c) => c.cid === selectedCid) : null;
+
+  // Jump back to the top when navigating between herd and detail.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [selectedCid]);
 
   async function onConnect() {
     setConnectError("");
     try {
       const w = await connectWallet(config.network);
       const c = getContracts(w.signer, config);
-      const [r, stats] = await Promise.all([
+      const [r] = await Promise.all([
         myReputation(c, w.account),
         masterRefresh(c, w.account),
       ]);
@@ -93,7 +105,7 @@ export default function App() {
       setRep(r);
       notify("Wallet connected. Your Stasis: " + r.score);
     } catch (err) {
-      setConnectError(err.shortMessage || err.message);
+      setConnectError(friendlyError(err));
     }
   }
 
@@ -123,22 +135,25 @@ export default function App() {
     refresh();
   }
 
-  async function refetchRep() {
+  async function handleMinted() {
+    setShowMint(false);
+    await refresh();
     if (contracts && wallet) {
       setRep(await myReputation(contracts, wallet.account));
     }
   }
 
-  async function handleMinted() {
-    setShowMint(false);
-    await refresh();
-    await refetchRep();
-  }
-
   return (
     <div>
       <div className="topbar">
-        <a className="brand" href="#" onClick={(e) => { e.preventDefault(); setSelected(null); }}>
+        <a
+          className="brand"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            setSelectedCid(null);
+          }}
+        >
           Proof of a <span>Hoof</span>
         </a>
         <span className="muted" style={{ fontSize: 13 }}>testnet demo</span>
@@ -155,13 +170,13 @@ export default function App() {
       <div className="container">
         {loading ? (
           <div className="loading">Loading the herd…</div>
-        ) : selected ? (
+        ) : detailCow ? (
           <CowDetail
-            cow={selected}
+            cow={detailCow}
             contracts={contracts}
             account={wallet?.account}
             rep={rep}
-            onBack={() => setSelected(null)}
+            onBack={() => setSelectedCid(null)}
             refresh={refresh}
             notify={notify}
           />
@@ -178,7 +193,7 @@ export default function App() {
               and once enough independent raters commit, it becomes{" "}
               <b>Active</b> and joins the conversation below.
             </p>
-            <CowList cows={cows} onOpen={setSelected} />
+            <CowList cows={cows} onOpen={(cow) => setSelectedCid(cow.cid)} />
           </>
         )}
       </div>

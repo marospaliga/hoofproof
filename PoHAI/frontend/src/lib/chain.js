@@ -56,6 +56,41 @@ export function applyDeployed(config) {
   };
 }
 
+// Translate contract reverts and ethers internals into plain English for the
+// UI toast. Custom error names can arrive via err.info.error / err.error, or
+// inlined in the message as 'CustomError()'.
+export function friendlyError(err) {
+  if (err instanceof ChainError) return err.message;
+
+  const message = err?.shortMessage || err?.reason || err?.message || String(err);
+  const name =
+    err?.info?.error?.name ||
+    err?.error?.name ||
+    (typeof message === "string" && message.match(/'([A-Za-z]+)(?:\(\))?'/)?.[1]) ||
+    "";
+
+  const known = {
+    InsufficientFree: "You don't have enough free Stasis for that. Score is earned by steady activity; this demo seeds it to the demo accounts listed when the node starts.",
+    InsufficientBonded: "You don't have that much Stasis locked as collateral.",
+    ConcentrationCap: "One account may hold at most 20% of a cow's backing — this cow needs more, different raters.",
+    CooldownActive: "You can only boost this cow once per day.",
+    InvalidBoost: "A boost must be between 0% and 10% of your score.",
+    WeightTooLow: "Your score is too low to boost meaningfully.",
+    PeriodNotElapsed: "The funding need can only be re-recorded once per 30-day period.",
+    IsMemorial: "Memorial cows are frozen — no actions can be taken on them.",
+    ZeroAmount: "The amount must be greater than zero.",
+    InsufficientStake: "You have not staked that much on this cow.",
+    NotTokenOwner: "This action requires the cow's owner.",
+    AlreadySupported: "You already supported this claim.",
+  };
+
+  if (name && known[name]) return known[name];
+  if (/missing revert data|call exception/i.test(message)) {
+    return "The chain call returned nothing — your wallet is probably on the wrong chain. You should be on Hardhat local (id 31337).";
+  }
+  return message;
+}
+
 export async function connectWallet(networkName = "hardhat") {
   if (!window.ethereum) {
     throw new ChainError("No wallet found. Install MetaMask (or another injected wallet).");

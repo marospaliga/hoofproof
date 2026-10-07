@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fmtDate, shortAddr } from "../config.js";
 import { api } from "../lib/api.js";
-import { stake, unstake, boost, transferCow, attestDeath, attestFundingNeed } from "../lib/chain.js";
+import { stake, unstake, boost, transferCow, attestDeath, attestFundingNeed, friendlyError } from "../lib/chain.js";
 
 function Threads({ cow, account, refresh, notify }) {
   const [title, setTitle] = useState("");
@@ -88,7 +88,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
       notify(`${label} done.`);
       await refresh();
     } catch (err) {
-      notify(err.shortMessage || err.message, "error");
+      notify(friendlyError(err), "error");
     } finally {
       setBusy("");
     }
@@ -174,6 +174,19 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                 {busy === "Report death" ? "…" : "Report death"}
               </button>
             </div>
+
+            {rep.score === 0 && (
+              <div
+                className="muted mt12"
+                style={{ fontSize: 13, border: "1px dashed var(--border)", padding: 8, borderRadius: 8 }}
+              >
+                Your wallet has no Stasis yet, so the rating actions above will be
+                declined by the contract. This demo seeds <b>20 000 score to the six
+                demo raters</b> — hardhat accounts <b>#1 to #6</b>, printed when the
+                node starts. Switch MetaMask to one of those accounts to stake,
+                boost or transfer.
+              </div>
+            )}
 
             <div className="mt12">
               <label htmlFor="amt">Rating amount</label>
