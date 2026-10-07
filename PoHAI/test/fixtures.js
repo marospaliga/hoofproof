@@ -6,11 +6,10 @@ const GENESIS = 10_000n;
  * Deploys and wires the whole system in dependency order:
  *
  *   Stasis -> CowNFT -> CowRating -> Attestation
- *   then enrols the two modules with Stasis, points CowNFT at its rating
- *   engine, and gives CowRating its cow + attestation addresses.
- *
- * Nothing here depends on a constructor argument that doesn't exist yet, so
- * there are no circular dependencies to work around.
+ *   then enrols the modules with Stasis, points CowNFT at its rating
+ *   engine, gives CowRating its cow + attestation addresses, and wires the
+ *   Phase B layer (GeneralPool as a Stasis module, HerdCouncil on top of the
+ *   rating engine).
  */
 async function deploySystem() {
   const signers = await ethers.getSigners();
@@ -32,8 +31,21 @@ async function deploySystem() {
     await cowRating.getAddress()
   );
 
+  const GeneralPool = await ethers.getContractFactory("GeneralPool");
+  const generalPool = await GeneralPool.deploy(
+    await stasis.getAddress(),
+    await cowRating.getAddress()
+  );
+
+  const HerdCouncil = await ethers.getContractFactory("HerdCouncil");
+  const herdCouncil = await HerdCouncil.deploy(
+    await cowNFT.getAddress(),
+    await cowRating.getAddress()
+  );
+
   await stasis.setModule(await cowRating.getAddress(), true);
   await stasis.setModule(await attestation.getAddress(), true);
+  await stasis.setModule(await generalPool.getAddress(), true);
   await cowNFT.setRatingEngine(await cowRating.getAddress());
   await cowRating.setWiring(await cowNFT.getAddress(), await attestation.getAddress());
 
@@ -44,6 +56,8 @@ async function deploySystem() {
     cowNFT,
     cowRating,
     attestation,
+    generalPool,
+    herdCouncil,
     owner,
     raters,
     alice,

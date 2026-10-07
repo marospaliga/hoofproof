@@ -45,9 +45,24 @@ async function main() {
   );
   await attestation.waitForDeployment();
 
+  const GeneralPool = await ethers.getContractFactory("GeneralPool");
+  const generalPool = await GeneralPool.deploy(
+    await stasis.getAddress(),
+    await cowRating.getAddress()
+  );
+  await generalPool.waitForDeployment();
+
+  const HerdCouncil = await ethers.getContractFactory("HerdCouncil");
+  const herdCouncil = await HerdCouncil.deploy(
+    await cowNFT.getAddress(),
+    await cowRating.getAddress()
+  );
+  await herdCouncil.waitForDeployment();
+
   // ---- wire everything (owner-only, one-time) ------------------------------
   await stasis.setModule(await cowRating.getAddress(), true);
   await stasis.setModule(await attestation.getAddress(), true);
+  await stasis.setModule(await generalPool.getAddress(), true);
   await cowNFT.setRatingEngine(await cowRating.getAddress());
   await cowRating.setWiring(await cowNFT.getAddress(), await attestation.getAddress());
 
@@ -60,6 +75,8 @@ async function main() {
     cowNFT: await cowNFT.getAddress(),
     cowRating: await cowRating.getAddress(),
     attestation: await attestation.getAddress(),
+    generalPool: await generalPool.getAddress(),
+    herdCouncil: await herdCouncil.getAddress(),
   };
   fs.writeFileSync(
     path.join(__dirname, "..", "deployed.json"),
@@ -70,6 +87,8 @@ async function main() {
   console.log("CowNFT      ", summary.cowNFT);
   console.log("CowRating   ", summary.cowRating);
   console.log("Attestation ", summary.attestation);
+  console.log("GeneralPool ", summary.generalPool);
+  console.log("HerdCouncil ", summary.herdCouncil);
   console.log("Deployer genesis:", GENESIS.toString());
   console.log("Wrote deployed.json");
 }

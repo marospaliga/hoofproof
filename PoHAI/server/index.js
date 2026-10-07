@@ -36,6 +36,8 @@ app.get("/api/config", (_req, res) => {
     cowNFT: deployed?.cowNFT,
     cowRating: deployed?.cowRating,
     attestation: deployed?.attestation,
+    generalPool: deployed?.generalPool,
+    herdCouncil: deployed?.herdCouncil,
   });
 });
 
@@ -46,7 +48,7 @@ app.get("/api/cows", (_req, res) => {
 });
 
 app.post("/api/cows", (req, res) => {
-  const { name, breed, age, story, image } = req.body || {};
+  const { name, breed, age, story, image, visibility } = req.body || {};
   if (!name) return res.status(400).json({ error: "name is required" });
 
   const id = "cow-" + crypto.randomBytes(4).toString("hex");
@@ -60,6 +62,9 @@ app.post("/api/cows", (req, res) => {
     age: age || "",
     story: story || "",
     image: image || "🐄",
+    // Visibility starts public. The server enforces reads for non-public
+    // records; a stricter on-chain flag ships in the next pass.
+    visibility: ["private", "internal", "external", "public"].includes(visibility) ? visibility : "public",
     createdAt: Date.now(),
     threads: [],
   };
@@ -79,6 +84,9 @@ app.patch("/api/cows/:cid", (req, res) => {
   if (!record) return res.status(404).json({ error: "not found" });
   if (req.body.tokenId !== undefined) record.tokenId = req.body.tokenId;
   if (req.body.owner !== undefined) record.owner = req.body.owner;
+  if (["private", "internal", "external", "public"].includes(req.body.visibility)) {
+    record.visibility = req.body.visibility;
+  }
   store.put(record.cid, record);
   res.json(record);
 });

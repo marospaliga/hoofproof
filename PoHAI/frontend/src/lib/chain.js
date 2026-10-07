@@ -1,4 +1,4 @@
-import { BrowserProvider, Contract, encodeBytes32String, Interface, ZeroAddress } from "ethers";
+import { BrowserProvider, Contract, encodeBytes32String, Interface, keccak256, toUtf8Bytes, ZeroAddress } from "ethers";
 import abis from "../abis.js";
 import { DEFAULT_CONTRACTS, STATUS_NAMES } from "../config.js";
 
@@ -90,15 +90,26 @@ export function friendlyError(err) {
     InsufficientFree: "You don't have enough free Stasis for that. Score is earned by steady activity; this demo seeds it to the demo accounts listed when the node starts.",
     InsufficientBonded: "You don't have that much Stasis locked as collateral.",
     ConcentrationCap: "One account may hold at most 20% of a cow's backing — this cow needs more, different raters.",
-    CooldownActive: "You can only boost this cow once per day.",
-    InvalidBoost: "A boost must be between 0% and 10% of your score.",
-    WeightTooLow: "Your score is too low to boost meaningfully.",
+    CooldownActive: "Your voting power is spent. It refills continuously — come back in a few hours.",
+    NoVotingPower: "Your voting power is spent — every thumbs-up uses 20% of it. It refills continuously over the next day.",
+    InvalidBoost: "A thumbs-up must use between 1% and 10% of your score.",
+    WeightTooLow: "Your score is too low to add any weight right now.",
     PeriodNotElapsed: "The funding need can only be re-recorded once per 30-day period.",
     IsMemorial: "Memorial cows are frozen — no actions can be taken on them.",
     ZeroAmount: "The amount must be greater than zero.",
     InsufficientStake: "You have not staked that much on this cow.",
     NotTokenOwner: "This action requires the cow's owner.",
     AlreadySupported: "You already supported this claim.",
+    InsufficientRajas: "You don't have that many Rajas action-credits.",
+    AlreadyClaimed: "You can only claim the gas rebate once per period.",
+    NoMomentum: "The gas rebate goes to raters with sustained momentum — your 1x is not enough yet. Stay active and claim again later.",
+    EmptyPool: "The GeneralPool treasury is empty for that action.",
+    NotAMember: "Only members of that herd (cow owners in it) may do this.",
+    NotAResident: "Reputation weight is calculated from cows you own in that herd.",
+    AlreadyVoted: "Each member votes once per proposal.",
+    VotingClosed: "The vote window has closed (or the proposal does not exist yet).",
+    AlreadyProposed: "A proposal with this hash already exists.",
+    NotExecutable: "This proposal cannot be finalized (unknown or already decided).",
   };
 
   if (name && known[name]) return known[name];
@@ -146,18 +157,22 @@ export function getContracts(signer, config) {
     cowNFT: new Contract(c.cowNFT, abis.cowNFT, signer),
     cowRating: new Contract(c.cowRating, abis.cowRating, signer),
     attestation: new Contract(c.attestation, abis.attestation, signer),
+    generalPool: new Contract(c.generalPool, abis.generalPool, signer),
+    herdCouncil: new Contract(c.herdCouncil, abis.herdCouncil, signer),
   };
 }
 
 export async function enrichCow(record, contracts) {
-  const { cowNFT, cowRating } = contracts;
+  const { cowNFT, cowRating, generalPool } = contracts;
   const tokenId = record.tokenId;
-  const [status, rating, backing, funding, owner] = await Promise.all([
+  const [status, rating, backing, funding, owner, carePool, cow] = await Promise.all([
     cowNFT.statusOf(tokenId),
     cowRating.ratingOf(tokenId),
     cowRating.totalStaked(tokenId),
     cowRating.funding(tokenId),
     cowNFT.ownerOf(tokenId),
+    generalPool.carePoolOf(tokenId),
+    cowNFT.cows(tokenId),
   ]);
   return {
     ...record,
@@ -166,17 +181,28 @@ export async function enrichCow(record, contracts) {
     rating: Number(rating),
     backing: Number(backing),
     fundingNeed: Number(funding.need),
+    carePool: Number(carePool),
+    herdId: Number(cow.herdId),
     onChainOwner: owner,
   };
 }
 
 export async function myReputation(contracts, account) {
-  const { stasis } = contracts;
-  const [score, bonded] = await Promise.all([
+  const { stasis, cowRating, generalPool } = contracts;
+  const [score, bonded, votingPower, momentum, rajas] = await Promise.all([
     stasis.effectiveScore(account),
     stasis.bonded(account),
+    cowRating.votingPowerOf(account),
+    cowRating.momentumBps(account),
+    generalPool.rajas(account),
   ]);
-  return { score: Number(score), bonded: Number(bonded) };
+  return {
+    score: Number(score),
+    bonded: Number(bonded),
+    votingPower: Number(votingPower),
+    momentum: Number(momentum),
+    rajas: Number(rajas),
+  };
 }
 
 // ---------------------------------------------------------------- actions ---
@@ -212,6 +238,68 @@ export async function unstake(contracts, tokenId, amount) {
 export async function boost(contracts, tokenId, bps) {
   const category = encodeBytes32String("general");
   const tx = await contracts.cowRating.boost(tokenId, category, bps);
+  await tx.wait();
+}
+
+// Vote on an image (1) or post (2); cow votes go through boost().
+export async function voteContent(contracts, tokenId, kind, cidHash, bps) {
+  const tx = await contracts.cowRating.vote(tokenId, kind, cidHash, bps);
+  await tx.wait();
+}
+
+export async function attestLabor(contracts, tokenId, hours, worker) {
+  const tx = await contracts.attestation.attest(
+    tokenId,
+    6, // Kind.Labor — subject = worker, value = hours
+    "ipfs://labor-evidence",
+    hours,
+    worker,
+    100 // min bond
+  );
+  await tx.wait();
+}
+
+export async function convertSattvaToRajas(contracts, amount) {
+  const tx = await contracts.generalPool.convertSattvaToRajas(amount);
+  await tx.wait();
+}
+
+export async function convertRajasToSattva(contracts, amount) {
+  const tx = await contracts.generalPool.convertRajasToSattva(amount);
+  await tx.wait();
+}
+
+export async function claimGasRebate(contracts) {
+  const tx = await contracts.generalPool.claimGasRebate();
+  await tx.wait();
+}
+
+// ------------------------------------------------------------------ council ---
+
+// A hash of the proposal body (posted off-chain) serves as the on-chain id.
+export function councilHash(text) {
+  return keccak256(toUtf8Bytes(text));
+}
+
+// Content (a post or image) is identified the same way: hash of its id.
+export function contentHash(text) {
+  return keccak256(toUtf8Bytes(text));
+}
+
+export async function proposeCouncil(contracts, herdId, text, durationDays = 3) {
+  const hash = councilHash(text);
+  const tx = await contracts.herdCouncil.propose(herdId, hash, durationDays);
+  await tx.wait();
+  return hash;
+}
+
+export async function councilVote(contracts, proposalId, support) {
+  const tx = await contracts.herdCouncil.vote(proposalId, support);
+  await tx.wait();
+}
+
+export async function councilFinalize(contracts, proposalId) {
+  const tx = await contracts.herdCouncil.finalize(proposalId);
   await tx.wait();
 }
 

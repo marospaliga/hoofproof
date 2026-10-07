@@ -1,9 +1,221 @@
 import { useState } from "react";
 import { fmtDate, shortAddr } from "../config.js";
 import { api } from "../lib/api.js";
-import { stake, unstake, boost, transferCow, attestDeath, attestFundingNeed, friendlyError } from "../lib/chain.js";
+import {
+  stake,
+  unstake,
+  boost,
+  voteContent,
+  contentHash,
+  transferCow,
+  attestDeath,
+  attestFundingNeed,
+  attestLabor,
+  convertSattvaToRajas,
+  convertRajasToSattva,
+  claimGasRebate,
+  proposeCouncil,
+  councilVote,
+  councilFinalize,
+  friendlyError,
+} from "../lib/chain.js";
 
-function Threads({ cow, account, refresh, notify }) {
+export function fmtEth(wei) {
+  return wei ? (Number(wei) / 1e18).toFixed(3) + " ETH" : "—";
+}
+
+// The council of this cow's herd, listed on-chain. Only herd members (cow
+// owners) may propose and vote — weight = rating of the member's cows in the
+// herd × their momentum.
+function CouncilPanel({ tokenId, herdId, contracts, account, notify }) {
+  const [proposals, setProposals] = useState(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState("");
+
+  async function reload() {
+    if (!contracts) return;
+    try {
+      const next = Number(await contracts.herdCouncil.nextProposalId());
+      const rows = [];
+      for (let id = 1; id < next; id++) {
+        const p = await contracts.herdCouncil.proposals(id);
+        if (Number(p.herdId) !== herdId) continue;
+        rows.push({
+          id: Number(p.id),
+          hash: p.hash,
+          forVotes: Number(p.forVotes),
+          againstVotes: Number(p.againstVotes),
+          endsAt: Number(p.endsAt),
+          executed: p.executed,
+        });
+      }
+      setProposals(rows);
+    } catch {
+      setProposals([]);
+    }
+  }
+
+  if (proposals === null && contracts) reload();
+
+  async function propose(e) {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    setBusy("Propose");
+    try {
+      await proposeCouncil(contracts, herdId, draft.trim(), 3);
+      notify("Council proposal pinned on-chain. Members can now vote.");
+      setDraft("");
+      reload();
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function vote(id, support) {
+    setBusy("vote" + id);
+    try {
+      await councilVote(contracts, id, support);
+      notify("Vote cast (weight = your cows' rating × momentum).");
+      reload();
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function finalize(id) {
+    setBusy("fin" + id);
+    try {
+      await councilFinalize(contracts, id);
+      notify("Proposal tallied. The council's signal has been recorded.");
+      reload();
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const open = (p) => !p.executed && Date.now() / 1000 < p.endsAt;
+  const decided = (p) => p.executed;
+
+  return (
+    <div className="panel mt12">
+      <h3 style={{ marginTop: 0 }}>HerdCouncil · herd {herdId}</h3>
+      {!account ? (
+        <div className="muted" style={{ fontSize: 13 }}>
+          Connect a wallet to propose or vote. Proposals live off-chain as draft
+          text; only its hash goes on-chain.
+        </div>
+      ) : (
+        <form onSubmit={propose} className="row mt12">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Proposal text (hashed on-chain)…"
+          />
+          <button className="primary" type="submit" disabled={busy === "Propose" || !draft.trim()}>
+            {busy === "Propose" ? "…" : "Propose"}
+          </button>
+        </form>
+      )}
+
+      {proposals && proposals.length === 0 && (
+        <div className="muted mt12" style={{ fontSize: 13 }}>
+          No proposals for this herd yet.
+        </div>
+      )}
+
+      {proposals?.map((p) => (
+        <div key={p.id} className="thread">
+          <div className="meta">
+            proposal #{p.id} · votes {p.forVotes} for / {p.againstVotes} against
+            {open(p) ? ` · closes ${new Date(p.endsAt * 1000).toLocaleDateString()}` : ""}
+            {decided(p) ? " · decided" : ""}
+          </div>
+          <div className="body" style={{ wordBreak: "break-all" }}>{p.hash.slice(0, 26)}…</div>
+          <div className="row mt12">
+            {open(p) ? (
+              <>
+                <button disabled={!!busy || !account} onClick={() => vote(p.id, true)}>
+                  {busy === "vote" + p.id ? "…" : "👍 Support"}
+                </button>
+                <button disabled={!!busy || !account} onClick={() => vote(p.id, false)}>
+                  {busy === "vote" + p.id ? "…" : "👎 Against"}
+                </button>
+                <button disabled={!!busy || !account} onClick={() => finalize(p.id)}>
+                  {busy === "fin" + p.id ? "…" : "Finalize"}
+                </button>
+              </>
+            ) : (
+              <span className="muted" style={{ fontSize: 12 }}>
+                {p.forVotes > p.againstVotes ? "✓ passed" : "✗ rejected"}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+
+      <div className="muted mt12" style={{ fontSize: 12 }}>
+        Voting weight = the rating of each cow <i>you own</i> in this herd × your
+        momentum. Money never votes; reputation does.
+      </div>
+    </div>
+  );
+}
+
+function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
+  const [rating, setRating] = useState(null);
+  const [forHash, setForHash] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const hash = contentHash("post:" + post.id);
+
+  // Load the on-chain rating for the current content, and reload whenever the
+  // user switches to a different cow's discussion (hash changes).
+  if (hash !== forHash) {
+    setForHash(hash);
+    if (!contracts) {
+      setRating(null);
+    } else {
+      contracts.cowRating
+        .contentRatingOf(tokenId, 2, hash)
+        .then((r) => setRating(Number(r)))
+        .catch(() => setRating(0));
+    }
+  }
+
+  async function thumb() {
+    if (!account) return notify("Connect a wallet to rate posts.", "error");
+    setBusy(true);
+    try {
+      await voteContent(contracts, tokenId, 2, hash, 1000);
+      setRating((rating || 0) + 1);
+      notify("Post rated — the weight adds to the cow's authenticity.");
+      refresh();
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      className="thumb"
+      disabled={busy || !contracts}
+      onClick={thumb}
+      title="Thumbs-up this post: the verified weight (rating × momentum) is added to the cow."
+    >
+      👍 {rating ?? "…"}
+    </button>
+  );
+}
+
+function Threads({ cow, contracts, account, refresh, notify }) {
   const [title, setTitle] = useState("");
   const [posts, setPosts] = useState({}); // threadId -> draft text
 
@@ -55,7 +267,17 @@ function Threads({ cow, account, refresh, notify }) {
           <div className="muted" style={{ fontSize: 12 }}>opened {fmtDate(thread.createdAt)}</div>
           {thread.posts.map((post) => (
             <div key={post.id} className="post">
-              <div className="meta">{post.author} · {fmtDate(post.createdAt)}</div>
+              <div className="meta">
+                {post.author} · {fmtDate(post.createdAt)}
+                <PostThumb
+                  tokenId={cow.tokenId}
+                  post={post}
+                  contracts={contracts}
+                  account={account}
+                  notify={notify}
+                  refresh={refresh}
+                />
+              </div>
               <div className="body">{post.text}</div>
             </div>
           ))}
@@ -76,6 +298,8 @@ function Threads({ cow, account, refresh, notify }) {
 export default function CowDetail({ cow, contracts, account, rep, onBack, refresh, notify }) {
   const [amount, setAmount] = useState("");
   const [bps, setBps] = useState(1000);
+  const [hours, setHours] = useState("");
+  const [rajasAmount, setRajasAmount] = useState("");
   const [toAddr, setToAddr] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -123,15 +347,43 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                 <div className="v">{cow.backing}</div>
               </div>
               <div className="stat">
+                <div className="k">Care pool</div>
+                <div className="v">{fmtEth(cow.carePool)}</div>
+              </div>
+              <div className="stat">
                 <div className="k">Funding need / period</div>
                 <div className="v">{cow.fundingNeed}</div>
               </div>
+            </div>
+
+            <div className="stats">
               <div className="stat">
                 <div className="k">Your Stasis</div>
                 <div className="v">{rep.score}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   free {Math.max(rep.score - rep.bonded, 0)} · bonded {rep.bonded}
                 </div>
+              </div>
+              <div className="stat">
+                <div className="k">Voting power</div>
+                <div className="v">{contracts ? (rep.votingPower / 100).toFixed(0) + "%" : "—"}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  refills ~24h
+                </div>
+              </div>
+              <div className="stat">
+                <div className="k">Momentum</div>
+                <div className="v">{contracts ? (rep.momentum / 100).toFixed(2) + "×" : "—"}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {contracts && rep.momentum > 10_000
+                    ? "gas-subsidy eligible"
+                    : "stays active to qualify"}
+                </div>
+              </div>
+              <div className="stat">
+                <div className="k">Rajas</div>
+                <div className="v">{contracts ? rep.rajas : "—"}</div>
+                <div className="muted" style={{ fontSize: 12 }}>action credits</div>
               </div>
             </div>
 
@@ -150,15 +402,15 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                 {busy === "Unstake" ? "…" : "Unstake"}
               </button>
               <select value={bps} onChange={(e) => setBps(Number(e.target.value))} style={{ width: "auto" }}>
-                <option value={100}>boost 1%</option>
-                <option value={500}>boost 5%</option>
-                <option value={1000}>boost 10%</option>
+                <option value={100}>thumb 1%</option>
+                <option value={500}>thumb 5%</option>
+                <option value={1000}>thumb 10%</option>
               </select>
               <button
                 disabled={busy}
-                onClick={() => run("Boost", () => boost(contracts, tokenId, bps))}
+                onClick={() => run("Thumbs up", () => boost(contracts, tokenId, bps))}
               >
-                {busy === "Boost" ? "…" : "👍 Boost"}
+                {busy === "Thumbs up" ? "…" : "👍 Thumbs up"}
               </button>
               <button
                 disabled={busy}
@@ -173,6 +425,18 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
               >
                 {busy === "Report death" ? "…" : "Report death"}
               </button>
+              <button
+                disabled={busy || !account}
+                onClick={() => run("Claim gas rebate", () => claimGasRebate(contracts))}
+              >
+                {busy === "Claim gas rebate" ? "…" : "⛽ Claim gas rebate"}
+              </button>
+            </div>
+
+            <div className="muted mt12" style={{ fontSize: 12 }}>
+              Every 👍 spends 20% of your voting power (refills over ~24h) and
+              weighs <b>(score × share) × momentum</b>. Posts in the discussion
+              carry the same mechanic.
             </div>
 
             {rep.score === 0 && (
@@ -205,6 +469,63 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
               ) : null}
             </div>
 
+            <div className="mt12 panel inset">
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                💪 Sweat equity — report real care work. The attestation is
+                self-reported and needs one other rater to reach quorum; the
+                reward = hours × base rate × (this cow's rating / reference).
+              </div>
+              <div className="row">
+                <input
+                  value={hours}
+                  onChange={(e) => setHours(e.target.value)}
+                  placeholder="hours (e.g. 40)"
+                  type="number"
+                  min="1"
+                />
+                <button
+                  disabled={!hours || busy || !account}
+                  onClick={() =>
+                    run("Report work", () => attestLabor(contracts, tokenId, hours, account))
+                  }
+                >
+                  {busy === "Report work" ? "…" : "🎯 Report my work"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt12 panel inset">
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                🏅 Rajas — spendable action credits. Convert influence in either
+                direction (Rajas→Sattva is capped at 10% of your score per step).
+              </div>
+              <div className="row">
+                <input
+                  value={rajasAmount}
+                  onChange={(e) => setRajasAmount(e.target.value)}
+                  placeholder="amount"
+                  type="number"
+                  min="1"
+                />
+                <button
+                  disabled={!rajasAmount || busy || !account}
+                  onClick={() =>
+                    run("Convert", () => convertSattvaToRajas(contracts, rajasAmount))
+                  }
+                >
+                  {busy === "Convert" ? "…" : "Sattva → Rajas"}
+                </button>
+                <button
+                  disabled={!rajasAmount || busy || !account}
+                  onClick={() =>
+                    run("Convert", () => convertRajasToSattva(contracts, rajasAmount))
+                  }
+                >
+                  {busy === "Convert" ? "…" : "Rajas → Sattva"}
+                </button>
+              </div>
+            </div>
+
             <div className="mt12">
               <label htmlFor="to">Transfer to (must own rating)</label>
               <div className="row">
@@ -234,7 +555,17 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
         </div>
       </div>
 
-      <Threads cow={cow} account={account} refresh={refresh} notify={notify} />
+      {cow.herdId > 0 && (
+        <CouncilPanel
+          tokenId={tokenId}
+          herdId={cow.herdId}
+          contracts={contracts}
+          account={account}
+          notify={notify}
+        />
+      )}
+
+      <Threads cow={cow} contracts={contracts} account={account} refresh={refresh} notify={notify} />
     </div>
   );
 }

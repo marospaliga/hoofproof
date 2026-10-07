@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const NAMES = ["Stasis", "CowNFT", "CowRating", "Attestation"];
+const NAMES = ["Stasis", "CowNFT", "CowRating", "Attestation", "GeneralPool", "HerdCouncil"];
 const out = {};
 
 for (const name of NAMES) {

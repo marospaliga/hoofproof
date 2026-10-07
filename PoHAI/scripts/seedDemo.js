@@ -52,6 +52,7 @@ async function main() {
   const cowNFT = await ethers.getContractAt("CowNFT", deploy.cowNFT);
   const cowRating = await ethers.getContractAt("CowRating", deploy.cowRating);
   const attestation = await ethers.getContractAt("Attestation", deploy.attestation);
+  const generalPool = await ethers.getContractAt("GeneralPool", deploy.generalPool);
 
   const existing = Number(await cowNFT.nextTokenId());
   if (existing > 1) {
@@ -102,6 +103,35 @@ async function main() {
   // Fast-forward 31 days so the demo's first "Report need 0" is a valid action.
   await hre.network.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
   await hre.network.provider.send("evm_mine", []);
+
+  // ---- Phase A+B demo layer ------------------------------------------------
+  // Voting power, sweat equity, Rajas, the care pool and the platform index.
+  // Wrapped loosely so a hiccup here warns instead of aborting the seed.
+  try {
+    console.log("Phase A+B demo layer…");
+
+    // r2 + r3 attest 40h of real care work on Blossom (tokenId 1): sweat
+    // equity scales with the cow's rating — Blossom is boosted, so it pays 1x.
+    for (const r of [r2, r3]) {
+      await attestation.connect(r).attest(1, 6, "ipfs://labor-blossom", 40, r3.address, 100);
+    }
+
+    // Seed the GeneralPool treasury and earmark care allowance for Hans.
+    await deployer.sendTransaction({ to: generalPool.getAddress(), value: ethers.parseEther("0.5") });
+    await generalPool.allocateCare(4, ethers.parseEther("0.25"));
+
+    // r1 converts influence into spendable Rajas credits.
+    await generalPool.connect(r1).convertSattvaToRajas(1000);
+
+    // r1 has real momentum (boosts + stakes before the +31d jump, half
+    // decayed): claim the "high rating gas you less" rebate from the pool.
+    await generalPool.connect(r1).claimGasRebate();
+
+    // Open the platform value index with two snapshots.
+    await generalPool.snapshotIndex();
+  } catch (e) {
+    console.warn("Phase A+B demo layer skipped:", e.message);
+  }
 
   console.log("\nDone. Run `npm run frontend` and open http://localhost:5173");
   console.log("(chain clock advanced +31 days so the funding lifecycle is demoable)");

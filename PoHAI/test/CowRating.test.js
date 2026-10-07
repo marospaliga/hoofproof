@@ -49,30 +49,13 @@ describe("CowRating", function () {
     });
   });
 
-  describe("boosting", function () {
+  describe("boosting and voting power", function () {
     it("weights a boost by the booster's own score", async function () {
       const { cowRating, alice, tokenId } = await loadFixture(fixture);
 
       await cowRating.connect(alice).boost(tokenId, PIGS, 1_000);
-      // 10_000 score * 10% = 1_000 weight.
+      // 10_000 score * 10% = 1_000 weight (fresh account: 1x momentum).
       expect(await cowRating.cowRating(tokenId)).to.equal(1_000);
-    });
-
-    it("rate-limits boosts so brigading is expensive", async function () {
-      const { cowRating, alice, tokenId } = await loadFixture(fixture);
-      const category = PIGS;
-
-      await cowRating.connect(alice).boost(tokenId, category, 1_000);
-      await expect(
-        cowRating.connect(alice).boost(tokenId, category, 1_000)
-      ).to.be.revertedWithCustomError(cowRating, "CooldownActive");
-
-      await time.increase(DAY);
-      await cowRating.connect(alice).boost(tokenId, category, 1_000);
-      const total = await cowRating.cowRating(tokenId);
-      // ~2x the single-boost weight; genesis decay shaves a little off.
-      expect(total).to.be.greaterThan(1_900n);
-      expect(total).to.be.lessThan(2_001n);
     });
 
     it("multiplies weight by the governance need-parameter", async function () {
@@ -83,6 +66,143 @@ describe("CowRating", function () {
       await cowRating.connect(alice).boost(tokenId, category, 1_000);
 
       expect(await cowRating.cowRating(tokenId)).to.equal(2_000);
+    });
+
+    it("spends voting power and refills it over a day", async function () {
+      const { cowRating, alice, tokenId } = await loadFixture(fixture);
+
+      expect(await cowRating.votingPowerOf(alice.address)).to.equal(10_000);
+
+      // Each boost spends 20% of voting power: five fit, the sixth does not.
+      for (let i = 0; i < 5; i++) {
+        await cowRating.connect(alice).boost(tokenId, PIGS, 1_000);
+        expect(await cowRating.votingPowerOf(alice.address)).to.equal(
+          BigInt(10_000 - (i + 1) * 2_000)
+        );
+      }
+
+      await expect(
+        cowRating.connect(alice).boost(tokenId, PIGS, 1_000)
+      ).to.be.revertedWithCustomError(cowRating, "NoVotingPower");
+
+      // Power recovers continuously — a day later the meter is full again.
+      await time.increase(DAY);
+      expect(await cowRating.votingPowerOf(alice.address)).to.equal(10_000);
+      await cowRating.connect(alice).boost(tokenId, PIGS, 1_000); // no revert
+    });
+
+    it("rejects nonsense votes and weightless voters", async function () {
+      const { cowRating, alice, stranger, tokenId } = await loadFixture(fixture);
+      const hash = ethers.ZeroHash;
+
+      await expect(
+        cowRating.connect(stranger).vote(tokenId, 2, hash, 1_000)
+      ).to.be.revertedWithCustomError(cowRating, "WeightTooLow");
+
+      await expect(
+        cowRating.connect(alice).vote(tokenId, 3, hash, 1_000)
+      ).to.be.revertedWithCustomError(cowRating, "InvalidBoost");
+
+      await expect(
+        cowRating.connect(alice).vote(tokenId, 2, hash, 0)
+      ).to.be.revertedWithCustomError(cowRating, "InvalidBoost");
+    });
+  });
+
+  describe("content voting", function () {
+    it("rates images and posts and folds them into the cow", async function () {
+      const { cowRating, alice, bob, tokenId } = await loadFixture(fixture);
+
+      const post = ethers.keccak256(ethers.toUtf8Bytes("post-a"));
+      await cowRating.connect(alice).vote(tokenId, 2, post, 1_000);
+      expect(await cowRating.contentRatingOf(tokenId, 2, post)).to.equal(1_000);
+
+      const image = ethers.keccak256(ethers.toUtf8Bytes("img-a"));
+      await cowRating.connect(bob).vote(tokenId, 1, image, 500);
+      expect(await cowRating.contentRatingOf(tokenId, 1, image)).to.equal(500);
+
+      // Content votes also prove the cow's authenticity.
+      expect(await cowRating.cowRating(tokenId)).to.equal(1_500);
+      expect(await cowRating.ratingOf(tokenId)).to.equal(1_500);
+    });
+  });
+
+  describe("ethical momentum", function () {
+    it("accumulates with activity and decays to 1x", async function () {
+      const { cowRating, alice, tokenId } = await loadFixture(fixture);
+
+      expect(await cowRating.momentumBps(alice.address)).to.equal(10_000);
+
+      // Each boost adds 2 activity points; bonus = points/500 of the headroom.
+      for (let i = 0; i < 5; i++) {
+        await cowRating.connect(alice).boost(tokenId, PIGS, 1_000);
+      }
+      expect(await cowRating.momentumBps(alice.address)).to.equal(10_100);
+
+      // Half the decay window passes: half the accumulated points remain.
+      await time.increase(45 * DAY);
+      expect(await cowRating.momentumBps(alice.address)).to.equal(10_050);
+
+      // Past the full window: back to a flat 1x.
+      await time.increase(46 * DAY);
+      expect(await cowRating.momentumBps(alice.address)).to.equal(10_000);
+    });
+
+    it("counts momentum-weighted stakes toward activation", async function () {
+      const { cowNFT, cowRating, raters, alice, tokenId } = await loadFixture(fixture);
+
+      // Alice builds momentum, so her stake pushes the cow further.
+      for (let i = 0; i < 5; i++) {
+        await cowRating.connect(alice).boost(tokenId, PIGS, 1_000);
+      }
+      await cowRating.connect(alice).stakeRating(tokenId, 200);
+      expect(await cowRating.totalWeightedStaked(tokenId)).to.equal(202);
+
+      // Two-hundred-weight stakes from fresh raters stay flat 1x.
+      // (raters[0] is alice, who already staked.)
+      for (const rater of raters.slice(1, 4)) {
+        await cowRating.connect(rater).stakeRating(tokenId, 200);
+      }
+      // 202 + 600 = 802 weighted → still Inert despite 800 raw.
+      expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Inert);
+
+      await cowRating.connect(raters[4]).stakeRating(tokenId, 200);
+      // 1002 weighted crosses the 1000 threshold with only 1000 raw.
+      expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
+      expect(await cowRating.totalStaked(tokenId)).to.equal(1_000);
+    });
+  });
+
+  describe("sweat equity", function () {
+    const LABOR = 6;
+
+    async function attestLabor(attestation, supporters, tokenId, hours, worker) {
+      const args = [tokenId, LABOR, "ipfs://labor", hours, worker, 100n];
+      for (const signer of supporters) {
+        await attestation.connect(signer).attest(...args);
+      }
+    }
+
+    it("only lets the attestation module reward labor", async function () {
+      const { cowRating, alice, tokenId } = await loadFixture(fixture);
+      await expect(
+        cowRating.connect(alice).rewardLabor(tokenId, alice.address, 10)
+      ).to.be.revertedWithCustomError(cowRating, "OnlyAttestation");
+    });
+
+    it("pays the same hours more on a well-rated project", async function () {
+      const { cowRating, attestation, stasis, alice, bob, carol, tokenId } = await loadFixture(fixture);
+
+      // Cow unboosted: the floor factor (0.2x) applies → 100h × 1 × 0.2 = 20.
+      const before = await stasis.effectiveScore(alice.address);
+      await attestLabor(attestation, [bob, carol], tokenId, 100n, alice.address);
+      expect(await stasis.effectiveScore(alice.address)).to.equal(before + 20n);
+
+      // Rate the cow to the reference → factor 1.0x → the same 100h = 100.
+      await cowRating.connect(bob).boost(tokenId, PIGS, 1_000);
+      const beforeRated = await stasis.effectiveScore(alice.address);
+      await attestLabor(attestation, [bob, carol], tokenId, 100n, alice.address);
+      expect(await stasis.effectiveScore(alice.address)).to.equal(beforeRated + 100n);
     });
   });
 

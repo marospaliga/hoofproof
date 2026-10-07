@@ -23,7 +23,8 @@ contract Attestation is Ownable {
         Sale, // the real cow changed hands offline
         Death, // the real cow died
         Revenue, // reported farm output (ghee, cheese, ...)
-        FundingNeed // the project's remaining monthly need
+        FundingNeed, // the project's remaining monthly need
+        Labor // real-world work hours on the cow (subject = worker, value = hours)
     }
 
     enum State {
@@ -87,6 +88,7 @@ contract Attestation is Ownable {
         quorum[Kind.Sale] = 3;
         quorum[Kind.Death] = 3;
         quorum[Kind.FundingNeed] = 1;
+        quorum[Kind.Labor] = 2;
     }
 
     function setQuorum(Kind kind, uint256 value) external onlyOwner {
@@ -223,6 +225,11 @@ contract Attestation is Ownable {
             cowRating.realWorldTransfer(tokenId, c.subject);
         } else if (kind == Kind.FundingNeed) {
             cowRating.recordFundingNeed(tokenId, c.value, c.subject == address(0) ? c.attester : c.subject);
+        } else if (kind == Kind.Labor) {
+            // Subject is the worker, value is the attested hours. The
+            // reputation award is calculated by the rating engine so the same
+            // hours are worth more on a well-rated project.
+            cowRating.rewardLabor(tokenId, c.subject, c.value);
         }
         // Existence, Care and Revenue are recorded evidence: they do not move
         // state on their own — users boost the cow after reading them.

@@ -23,9 +23,13 @@ async function main() {
   const stasis = await ethers.getContractAt(abiOf("Stasis"), deploy.stasis);
   const cowNFT = await ethers.getContractAt(abiOf("CowNFT"), deploy.cowNFT);
   const cowRating = await ethers.getContractAt(abiOf("CowRating"), deploy.cowRating);
+  const generalPool = await ethers.getContractAt(abiOf("GeneralPool"), deploy.generalPool);
 
   console.log(`chain block: ${block}`);
-  console.log(`addrs: stasis=${deploy.stasis} cowNFT=${deploy.cowNFT} cowRating=${deploy.cowRating} attestation=${deploy.attestation}`);
+  console.log(
+    `addrs: stasis=${deploy.stasis} cowNFT=${deploy.cowNFT} cowRating=${deploy.cowRating} ` +
+      `attestation=${deploy.attestation} generalPool=${deploy.generalPool} herdCouncil=${deploy.herdCouncil}`
+  );
 
   const [deployer, r1, r2] = await ethers.getSigners();
   const scores = [
@@ -34,9 +38,30 @@ async function main() {
     ["r2 (acct #2)", r2.address],
   ];
   for (const [label, addr] of scores) {
-    const [s, b] = await Promise.all([stasis.effectiveScore(addr), stasis.bonded(addr)]);
-    console.log(`score  ${label}: effective=${s} bonded=${b}`);
+    const [s, b, vp, mom] = await Promise.all([
+      stasis.effectiveScore(addr),
+      stasis.bonded(addr),
+      cowRating.votingPowerOf(addr),
+      cowRating.momentumBps(addr),
+    ]);
+    console.log(
+      `score  ${label}: effective=${s} bonded=${b} votePower=${vp} momentum=${mom}`
+    );
   }
+
+  const rajas = [["r1 (acct #1)", r1.address]];
+  for (const [label, addr] of rajas) {
+    console.log(`rajas  ${label}: ${await generalPool.rajas(addr)}`);
+  }
+  const [careHans, epochs, platformValue] = await Promise.all([
+    generalPool.carePoolOf(4),
+    generalPool.epochCount(),
+    generalPool.platformValue(),
+  ]);
+  console.log(
+    `pool: nativeBalance=${await ethers.provider.getBalance(deploy.generalPool)} carePool[Hans]=${careHans} ` +
+      `epochs=${epochs} platformValue=${platformValue}`
+  );
 
   const next = Number(await cowNFT.nextTokenId());
   console.log(`cows on chain: ${next - 1}`);
