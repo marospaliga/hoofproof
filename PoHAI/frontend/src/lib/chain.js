@@ -1,8 +1,25 @@
-import { BrowserProvider, Contract, encodeBytes32String, ZeroAddress } from "ethers";
+import { BrowserProvider, Contract, encodeBytes32String, Interface, ZeroAddress } from "ethers";
 import abis from "../abis.js";
 import { DEFAULT_CONTRACTS, STATUS_NAMES } from "../config.js";
 
 export class ChainError extends Error {}
+
+// Error selector -> name, built from every ABI the UI knows about. ethers
+// v6 sometimes reports tx reverts as "(unknown custom error)" without looking
+// the name up; we resolve the 4-byte selector ourselves so the toast can still
+// translate it (e.g. CooldownActive -> "once per day").
+const ERROR_SELECTORS = (() => {
+  const map = new Map();
+  for (const abi of Object.values(abis)) {
+    const iface = new Interface(abi);
+    for (const frag of Object.values(iface.fragments)) {
+      if (frag.type !== "error") continue;
+      const selector = iface.getError(frag.name).selector.toLowerCase();
+      if (!map.has(selector)) map.set(selector, frag.name);
+    }
+  }
+  return map;
+})();
 
 // The chains this demo expects to run on. Keyed by the network name the deploy
 // script reports (see deployed.json / the agorá /api/config).
@@ -85,6 +102,15 @@ export function friendlyError(err) {
   };
 
   if (name && known[name]) return known[name];
+
+  // ethers v6.17 often carries the raw revert data on err.data even when it
+  // reports "(unknown custom error)" — resolve the selector ourselves.
+  const data = err?.data;
+  if (typeof data === "string" && data.startsWith("0x") && data.length >= 10) {
+    const revertName = ERROR_SELECTORS.get(data.slice(0, 10).toLowerCase());
+    if (revertName && known[revertName]) return known[revertName];
+  }
+
   if (/missing revert data|call exception/i.test(message)) {
     return "The chain call returned nothing — your wallet is probably on the wrong chain. You should be on Hardhat local (id 31337).";
   }

@@ -90,7 +90,9 @@ chain id `31337`, and one of the demo accounts listed when the node starts
 What you can do in the UI: browse the herd, open a cow, read/start discussion
 threads, stake/unstake rating, boost (thumbs-up), mint a new cow, transfer one,
 report a funding need of zero (Hans starts with a real need of 500 so the
-solver-credit lifecycle is demoable), and report a death.
+solver-credit lifecycle is demoable), and report a death. The herd page also
+links to an embedded copy of the whitepaper (`frontend/public/whitepaper.pdf`,
+a copy of `ProofOfAHoof.pdf`) with its references.
 
 To reset everything: stop `npm run dev`, delete `server/data.json`, and restart
 — the seed is idempotent per fresh chain.

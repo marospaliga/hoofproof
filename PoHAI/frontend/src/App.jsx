@@ -3,6 +3,7 @@ import Wallet from "./components/Wallet.jsx";
 import CowList from "./components/CowList.jsx";
 import CowDetail from "./components/CowDetail.jsx";
 import MintModal from "./components/MintModal.jsx";
+import Docs from "./components/Docs.jsx";
 import { api } from "./lib/api.js";
 import {
   applyDeployed,
@@ -21,6 +22,7 @@ export default function App() {
   const [rep, setRep] = useState({ score: 0, bonded: 0 });
   const [cows, setCows] = useState([]);
   const [selectedCid, setSelectedCid] = useState(null);
+  const [view, setView] = useState("herd"); // "herd" | "docs"
   const [showMint, setShowMint] = useState(false);
   const [notice, setNotice] = useState(null);
   const [connectError, setConnectError] = useState("");
@@ -89,7 +91,12 @@ export default function App() {
   // Jump back to the top when navigating between herd and detail.
   useEffect(() => {
     window.scrollTo({ top: 0 });
-  }, [selectedCid]);
+  }, [selectedCid, view]);
+
+  function openDocs() {
+    setSelectedCid(null);
+    setView("docs");
+  }
 
   async function onConnect() {
     setConnectError("");
@@ -151,6 +158,7 @@ export default function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
+            setView("herd");
             setSelectedCid(null);
           }}
         >
@@ -180,13 +188,18 @@ export default function App() {
             refresh={refresh}
             notify={notify}
           />
+        ) : view === "docs" ? (
+          <Docs onBack={() => setView("herd")} />
         ) : (
           <>
             <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
               <h2 style={{ margin: 0 }}>The herd</h2>
-              <button className="primary" onClick={() => setShowMint(true)}>
-                Mint a cow
-              </button>
+              <div className="row" style={{ gap: 8 }}>
+                <button onClick={openDocs}>📄 Whitepaper &amp; references</button>
+                <button className="primary" onClick={() => setShowMint(true)}>
+                  Mint a cow
+                </button>
+              </div>
             </div>
             <p className="muted" style={{ maxWidth: 640 }}>
               Cows start <b>Inert</b>. Raters stake their reputation to back one,
