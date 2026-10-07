@@ -1,4 +1,4 @@
-# Proof of a Hoof — MVP contracts
+# Proof of a Hoof — MVP
 
 A blockchain app giving real cows an on-chain record: an NFT whose reputation is
 earned — never bought — through community staking, attestation and a
@@ -7,6 +7,9 @@ non-transferable score called **Stasis**. Built on an existing EVM network
 
 This is the MVP from the architecture plan:
 - **4 contracts**, Solidity 0.8 + OpenZeppelin 5, Hardhat JS, ethers v6.
+- **An agorá server** (`server/`, Express + JSON store) for the off-chain prose:
+  cow metadata and the Steemit-style discussion threads.
+- **A Vite + React frontend** (`frontend/`) connecting to both.
 - No custom chain, no consensus changes. Money and *rating* are deliberately
   separate fields of the system.
 
@@ -54,14 +57,35 @@ CowNFT.setRatingEngine(CowRating)
 CowRating.setWiring(CowNFT, Attestation)
 ```
 
-## Run it
+## Run the local demo (chain + agora + frontend)
 
 ```bash
 npm install
-npm test            # 38 tests: score math, caps, staking, disputes, lifecycle
-npm run node        # local Hardhat chain
-npm run deploy      # deploy + wire + grant the deployer genesis score
-# testnets:
+npm install --prefix frontend
+npm test                 # 38 tests: score math, caps, staking, disputes, lifecycle
+
+npm run dev              # one command: hardhat node + agora server + vite dev server
+# in a second terminal, the first time only:
+npm run deploy:local     # deploy + wire + grant genesis; writes deployed.json
+npm run seed             # ~10 synthetic cows in varied life states
+```
+
+Then open http://localhost:5173 and connect a wallet.
+MetaMask needs the local chain added: network `http://127.0.0.1:8545`,
+chain id `31337`, and one of the demo accounts listed when the node starts
+(their private keys are printed by `npm run node`).
+
+What you can do in the UI: browse the herd, open a cow, read/start discussion
+threads, stake/unstake rating, boost (thumbs-up), mint a new cow, transfer one,
+report a funding need of zero (Hans starts with a real need of 500 so the
+solver-credit lifecycle is demoable), and report a death.
+
+To reset everything: stop `npm run dev`, delete `server/data.json`, and restart
+— the seed is idempotent per fresh chain.
+
+Testnet deploys:
+
+```bash
 npm run deploy:sepolia   # needs .env: SEPOLIA_RPC_URL + DEPLOYER_PRIVATE_KEY
 npm run deploy:amoy
 ```
@@ -109,12 +133,17 @@ with the piece that replaces it later:
 
 ## Roadmap after the basics
 
-1. Node backend + SQLite for the *agora* (cow list, discussion threads, UI)
-   and the off-chain evidence store.
-2. Vite + React frontend: cattle list → cow detail → discussion → boost → mint.
-3. Sepolia/Amoy demo deployment with ~10 synthetic cows.
-4. Pilot: parameterise a verifier and the funding till; migrate the versioned
-   parameters and constants to constructor/config values.
+1. ✅ Agorá backend (`server/`): cow metadata + discussion threads + evidence
+   store. Currently a zero-dependency JSON file; the store layer is swapped for
+   SQLite/Postgres before the pilot without touching the endpoints.
+2. ✅ Vite + React frontend (`frontend/`): herd → cow detail → discussion →
+   boost → mint, wired to the contracts via ethers v6 and the agorá over
+   `/api`.
+3. ⏭ Sepolia/Amoy demo deployment with ~10 synthetic cows (`npm run
+   deploy:sepolia`/`deploy:amoy`; needs `.env` RPC + private key).
+4. ⏭ Pilot: parameterise a verifier and the funding till; migrate the
+   versioned parameters and constants to constructor/config values; replace the
+   single-owner dispute key with a multisig.
 
 See the original whitepaper and architecture blueprint (in the repo root of
 `/Users/maros/HoofProof`) for the full rationale.

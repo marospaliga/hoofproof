@@ -7,17 +7,27 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
+    "abis": "node scripts/gen-abis.js",
     "node": "hardhat node",
     "deploy": "hardhat run scripts/deploy.js",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
     "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
-    "deploy:amoy": "hardhat run scripts/deploy.js --network amoy"
+    "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",
+    "seed": "hardhat run scripts/seedDemo.js --network localhost",
+    "server": "node server/index.js",
+    "frontend": "npm --prefix frontend run dev",
+    "dev": "concurrently -k -n chain,api,web -c yellow,cyan,green \"npm run node\" \"npm run server\" \"npm run frontend\"",
+    "build:frontend": "npm --prefix frontend run build"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "concurrently": "^9.0.0",
     "dotenv": "^18.0.6",
     "hardhat": "^2.29.1"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.6.1"
+    "@openzeppelin/contracts": "^5.6.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
   }
 }

@@ -16,6 +16,8 @@
 
 const hre = require("hardhat");
 const { ethers } = hre;
+const fs = require("fs");
+const path = require("path");
 
 const GENESIS = 10_000n;
 
@@ -52,11 +54,24 @@ async function main() {
   // ---- bootstrap the pilot operator ---------------------------------------
   await stasis.grantGenesis(deployer.address, GENESIS);
 
-  console.log("Stasis      ", await stasis.getAddress());
-  console.log("CowNFT      ", await cowNFT.getAddress());
-  console.log("CowRating   ", await cowRating.getAddress());
-  console.log("Attestation ", await attestation.getAddress());
+  const summary = {
+    network: hre.network.name,
+    stasis: await stasis.getAddress(),
+    cowNFT: await cowNFT.getAddress(),
+    cowRating: await cowRating.getAddress(),
+    attestation: await attestation.getAddress(),
+  };
+  fs.writeFileSync(
+    path.join(__dirname, "..", "deployed.json"),
+    JSON.stringify(summary, null, 2)
+  );
+
+  console.log("Stasis      ", summary.stasis);
+  console.log("CowNFT      ", summary.cowNFT);
+  console.log("CowRating   ", summary.cowRating);
+  console.log("Attestation ", summary.attestation);
   console.log("Deployer genesis:", GENESIS.toString());
+  console.log("Wrote deployed.json");
 }
 
 main().catch((error) => {
