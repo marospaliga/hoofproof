@@ -1,0 +1,23 @@
+{
+  "name": "pohai",
+  "version": "0.1.0",
+  "description": "Proof of a Hoof — cow NFTs backed by community staking, attestation and a non-transferable reputation ledger (Stasis). MVP on an existing EVM testnet.",
+  "main": "scripts/deploy.js",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy": "hardhat run scripts/deploy.js",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "deploy:amoy": "hardhat run scripts/deploy.js --network amoy"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^18.0.6",
+    "hardhat": "^2.29.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1"
+  }
+}

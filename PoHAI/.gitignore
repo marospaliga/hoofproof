@@ -1,0 +1,16 @@
+node_modules/
+cache/
+artifacts/
+coverage/
+coverage.json
+typechain-types/
+
+.env
+.env.*
+!.env.example
+
+frontend/node_modules/
+frontend/dist/
+
+server/node_modules/
+server/data/
