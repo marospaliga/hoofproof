@@ -115,15 +115,17 @@ describe("CowRating", function () {
 
       const post = ethers.keccak256(ethers.toUtf8Bytes("post-a"));
       await cowRating.connect(alice).vote(tokenId, 2, post, 1_000);
-      expect(await cowRating.contentRatingOf(tokenId, 2, post)).to.equal(1_000);
+      // Discussion is softened to 40% of the raw weight.
+      expect(await cowRating.contentRatingOf(tokenId, 2, post)).to.equal(400);
 
       const image = ethers.keccak256(ethers.toUtf8Bytes("img-a"));
       await cowRating.connect(bob).vote(tokenId, 1, image, 500);
+      // Evidence still counts in full.
       expect(await cowRating.contentRatingOf(tokenId, 1, image)).to.equal(500);
 
       // Content votes also prove the cow's authenticity.
-      expect(await cowRating.cowRating(tokenId)).to.equal(1_500);
-      expect(await cowRating.ratingOf(tokenId)).to.equal(1_500);
+      expect(await cowRating.cowRating(tokenId)).to.equal(900);
+      expect(await cowRating.ratingOf(tokenId)).to.equal(900);
     });
   });
 

@@ -34,7 +34,8 @@ async function deploySystem() {
   const GeneralPool = await ethers.getContractFactory("GeneralPool");
   const generalPool = await GeneralPool.deploy(
     await stasis.getAddress(),
-    await cowRating.getAddress()
+    await cowRating.getAddress(),
+    await cowNFT.getAddress()
   );
 
   const HerdCouncil = await ethers.getContractFactory("HerdCouncil");
@@ -43,11 +44,23 @@ async function deploySystem() {
     await cowRating.getAddress()
   );
 
+  const Moderation = await ethers.getContractFactory("Moderation");
+  const moderation = await Moderation.deploy(
+    await stasis.getAddress(),
+    await cowRating.getAddress()
+  );
+
+  const Academy = await ethers.getContractFactory("Academy");
+  const academy = await Academy.deploy(await stasis.getAddress());
+
   await stasis.setModule(await cowRating.getAddress(), true);
   await stasis.setModule(await attestation.getAddress(), true);
   await stasis.setModule(await generalPool.getAddress(), true);
+  await stasis.setModule(await academy.getAddress(), true);
   await cowNFT.setRatingEngine(await cowRating.getAddress());
   await cowRating.setWiring(await cowNFT.getAddress(), await attestation.getAddress());
+  await cowRating.setModeration(await moderation.getAddress(), 5_000);
+  await academy.setGrader(owner.address);
 
   const raters = [alice, bob, carol, dave, erin, frank];
 
@@ -58,6 +71,8 @@ async function deploySystem() {
     attestation,
     generalPool,
     herdCouncil,
+    moderation,
+    academy,
     owner,
     raters,
     alice,

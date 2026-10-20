@@ -142,13 +142,16 @@ describe("Attestation", function () {
     await activate(cowRating, raters, tokenId);
     expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
 
-    // Month 0: the project still needs 500 per period.
+    // Month 0: the project still needs 500 per period (quorum is 2).
     await post(attestation, raters[0], tokenId, Kind.FundingNeed, 500, alice.address);
+    await post(attestation, raters[1], tokenId, Kind.FundingNeed, 500, alice.address);
 
-    // Month 1: the dependency disappears — whoever removed it is credited.
+    // Month 1: the dependency disappears — whoever removed it is credited,
+    // but only because a second rater corroborated (solver != reporter).
     await time.increase(30 * DAY);
     const before = await stasis.effectiveScore(alice.address);
     await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
+    await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
     const after = await stasis.effectiveScore(alice.address);
 
     expect(after - before).to.equal(50); // 10% of the 500 that vanished
@@ -156,10 +159,28 @@ describe("Attestation", function () {
 
     await time.increase(30 * DAY);
     await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
+    await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
     await time.increase(30 * DAY);
     await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
+    await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
 
     expect(await cowNFT.statusOf(tokenId)).to.equal(Status.SelfSustaining);
+  });
+
+  it("skips the solver award for solo self-reports when corroboration is required", async function () {
+    const { attestation, cowRating, stasis, owner, raters, alice, tokenId } = await loadFixture(fixture);
+    await activate(cowRating, raters, tokenId);
+    await attestation.connect(owner).setQuorum(Kind.FundingNeed, 1);
+
+    await post(attestation, raters[0], tokenId, Kind.FundingNeed, 500, alice.address);
+
+    // Alice alone reports the reduction naming herself solver: the need is
+    // recorded, but with no corroborator the award is skipped.
+    await time.increase(30 * DAY);
+    const before = await stasis.effectiveScore(alice.address);
+    await post(attestation, alice, tokenId, Kind.FundingNeed, 0, alice.address);
+    expect(await stasis.effectiveScore(alice.address)).to.equal(before);
+    expect((await cowRating.funding(tokenId)).need).to.equal(0);
   });
 
   it("refuses attestations against tokens that were never minted", async function () {

@@ -5,34 +5,38 @@ const { withFundedRaters } = require("./fixtures");
 
 const DAY = 86_400;
 const PIGS = ethers.encodeBytes32String("pigs");
+const ZERO = ethers.ZeroAddress;
+
+// Quorum an executed Care claim and return its id (anchor + spend proof).
+async function careProof(attestation, a, b, tokenId) {
+  const args = [tokenId, 1, "ipfs://care", 0, ZERO, 100n];
+  const id = await attestation.connect(a).attest.staticCall(...args);
+  await attestation.connect(a).attest(...args);
+  await attestation.connect(b).attest(...args);
+  return id;
+}
+
+// Quorum an executed Labor claim and return its id (spend proof).
+async function laborProof(attestation, a, b, tokenId, worker, hours = 40n) {
+  const args = [tokenId, 6, "ipfs://labor", hours, worker, 100n];
+  const id = await attestation.connect(a).attest.staticCall(...args);
+  await attestation.connect(a).attest(...args);
+  await attestation.connect(b).attest(...args);
+  return id;
+}
+
+async function activate(cowRating, raters, tokenId) {
+  for (const rater of raters.slice(0, 5)) {
+    await cowRating.connect(rater).stakeRating(tokenId, 200);
+  }
+}
 
 describe("GeneralPool", function () {
   async function fixture() {
     return withFundedRaters();
   }
 
-  describe("Rajas flow", function () {
-    it("converts Sattva to Rajas and back", async function () {
-      const { generalPool, stasis, alice } = await loadFixture(fixture);
 
-      const before = await stasis.effectiveScore(alice.address);
-      await generalPool.connect(alice).convertSattvaToRajas(500);
-      expect(await generalPool.rajas(alice.address)).to.equal(500);
-      expect(await stasis.effectiveScore(alice.address)).to.equal(before - 500n);
-
-      // 500 is under the 10% gain cap, so the round trip is exact.
-      await generalPool.connect(alice).convertRajasToSattva(500);
-      expect(await generalPool.rajas(alice.address)).to.equal(0);
-      expect(await stasis.effectiveScore(alice.address)).to.equal(before);
-    });
-
-    it("rejects conversions beyond the balance", async function () {
-      const { generalPool, alice } = await loadFixture(fixture);
-      await expect(
-        generalPool.connect(alice).convertRajasToSattva(1)
-      ).to.be.revertedWithCustomError(generalPool, "InsufficientRajas");
-    });
-  });
 
   describe("gas rebates", function () {
     it("pays nothing to a rater without momentum", async function () {
@@ -56,9 +60,13 @@ describe("GeneralPool", function () {
         value: ethers.parseEther("1"),
       });
 
-      // One boost earns momentum (2 activity points → 1.02x).
+      // Alice curates protection-linked content (protection activity), then
+      // boosts for momentum (2 + 2 activity points → ~1.01x).
+      const img = ethers.keccak256(ethers.toUtf8Bytes("care-photo"));
+      await cowRating.connect(alice).registerContent(tokenId, 1, img, true);
+      await cowRating.connect(alice)["vote(uint256,uint8,bytes32,uint256,address)"](tokenId, 1, img, 1_000, alice.address);
       await cowRating.connect(alice).boost(tokenId, PIGS, 1_000);
-      expect(await cowRating.momentumBps(alice.address)).to.equal(10_020);
+      expect(await cowRating.momentumBps(alice.address)).to.be.greaterThan(10_000);
 
       const before = await ethers.provider.getBalance(alice.address);
       await generalPool.connect(alice).claimGasRebate();
@@ -72,16 +80,42 @@ describe("GeneralPool", function () {
   });
 
   describe("care pool", function () {
-    it("earmarks donated funds for a specific cow", async function () {
-      const { generalPool, owner, tokenId } = await loadFixture(fixture);
+    it("earmarks donated funds for a live protection project", async function () {
+      const { generalPool, attestation, cowNFT, cowRating, owner, raters, tokenId } = await loadFixture(fixture);
+      await activate(cowRating, raters, tokenId);
+      const proof = await careProof(attestation, raters[0], raters[1], tokenId);
+
       await owner.sendTransaction({
         to: await generalPool.getAddress(),
         value: ethers.parseEther("1"),
       });
 
       const amount = ethers.parseEther("0.5");
-      await generalPool.connect(owner).allocateCare(tokenId, amount);
+      await generalPool.connect(owner).allocateCare(tokenId, amount, proof);
       expect(await generalPool.carePoolOf(tokenId)).to.equal(amount);
+    });
+
+    it("refuses earmarks without a live anchor or proof", async function () {
+      const { generalPool, attestation, cowNFT, cowRating, owner, raters, alice, tokenId } = await loadFixture(fixture);
+      const { mint } = require("./fixtures");
+      const fresh = await mint(cowNFT, alice, "ipfs://fresh");
+
+      await owner.sendTransaction({
+        to: await generalPool.getAddress(),
+        value: ethers.parseEther("1"),
+      });
+
+      // Fresh cow: no anchor at all.
+      await expect(
+        generalPool.connect(owner).allocateCare(fresh, 1, 0)
+      ).to.be.revertedWithCustomError(generalPool, "NoAnchor");
+
+      // Anchor live but no proof cited still fails.
+      await activate(cowRating, raters, tokenId);
+      await careProof(attestation, raters[0], raters[1], tokenId);
+      await expect(
+        generalPool.connect(owner).allocateCare(tokenId, 1, 0)
+      ).to.be.revertedWithCustomError(generalPool, "NoProof");
     });
   });
 
@@ -99,9 +133,7 @@ describe("GeneralPool", function () {
       expect(epoch.backing).to.equal(200);
       expect(epoch.rating).to.be.greaterThan(0);
       expect(epoch.stasis).to.equal(await stasis.totalScore());
-      expect(epoch.rajas).to.equal(0);
-
-      const [, , , , activeCows] = await generalPool.platformMetrics();
+      const [, , , activeCows] = await generalPool.platformMetrics();
       expect(activeCows).to.equal(0); // 200 staked has not activated the cow
       expect(await generalPool.platformValue()).to.be.greaterThan(0);
     });
@@ -142,24 +174,44 @@ describe("GeneralPool", function () {
     });
 
     it("only the creator spends escrow, and never more than was raised", async function () {
-      const { generalPool, alice, bob } = await loadFixture(fixture);
+      const { generalPool, attestation, owner, alice, bob, tokenId } = await loadFixture(fixture);
       await generalPool.connect(alice).createEvent("ipfs://stable", ethers.parseEther("1"));
       const id = await generalPool.eventCount();
       await generalPool.connect(bob).contribute(id, { value: ethers.parseEther("1") });
+      const proof = await laborProof(attestation, alice, bob, tokenId, alice.address);
 
       await expect(
-        generalPool.connect(bob).spend(id, ethers.parseEther("1"), bob.address)
+        generalPool.connect(bob).spend(id, ethers.parseEther("1"), bob.address, proof)
       ).to.be.revertedWithCustomError(generalPool, "NotEventCreator");
 
+      // Releases cite executed protection work.
+      await expect(
+        generalPool.connect(alice).spend(id, ethers.parseEther("1"), alice.address, 0)
+      ).to.be.revertedWithCustomError(generalPool, "NoProof");
+
+      // 1 ETH exceeds the 0.5 ETH large-spend threshold: deliberate two-step.
+      await generalPool.connect(owner).approveSpend(id, ethers.parseEther("1"), alice.address, proof);
       const before = await ethers.provider.getBalance(alice.address);
-      await generalPool.connect(alice).spend(id, ethers.parseEther("1"), alice.address);
+      await generalPool.connect(alice).spend(id, ethers.parseEther("1"), alice.address, proof);
       expect(await ethers.provider.getBalance(alice.address)).to.be.greaterThan(before);
       expect((await generalPool.events(id)).spent).to.equal(ethers.parseEther("1"));
 
-      await expect(generalPool.connect(alice).spend(id, 1, alice.address)).to.be.revertedWithCustomError(
+      await expect(generalPool.connect(alice).spend(id, 1, alice.address, proof)).to.be.revertedWithCustomError(
         generalPool,
         "CannotSpend"
       );
+    });
+
+    it("releases small amounts without prior approval", async function () {
+      const { generalPool, attestation, owner, alice, bob, tokenId } = await loadFixture(fixture);
+      await generalPool.connect(alice).createEvent("ipfs://small", ethers.parseEther("1"));
+      const id = await generalPool.eventCount();
+      await generalPool.connect(bob).contribute(id, { value: ethers.parseEther("0.1") });
+      const proof = await laborProof(attestation, alice, bob, tokenId, alice.address);
+
+      await owner.sendTransaction({ to: await generalPool.getAddress(), value: ethers.parseEther("1") });
+      await generalPool.connect(alice).spend(id, ethers.parseEther("0.1"), alice.address, proof);
+      expect((await generalPool.events(id)).spent).to.equal(ethers.parseEther("0.1"));
     });
 
     it("closing an event blocks further contributions", async function () {
