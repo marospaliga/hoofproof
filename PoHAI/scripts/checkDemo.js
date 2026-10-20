@@ -49,10 +49,7 @@ async function main() {
     );
   }
 
-  const rajas = [["r1 (acct #1)", r1.address]];
-  for (const [label, addr] of rajas) {
-    console.log(`rajas  ${label}: ${await generalPool.rajas(addr)}`);
-  }
+
   const [careHans, epochs, platformValue] = await Promise.all([
     generalPool.carePoolOf(4),
     generalPool.epochCount(),
@@ -61,6 +58,20 @@ async function main() {
   console.log(
     `pool: nativeBalance=${await ethers.provider.getBalance(deploy.generalPool)} carePool[Hans]=${careHans} ` +
       `epochs=${epochs} platformValue=${platformValue}`
+  );
+
+  // ---- protection layer: anchors, labor, care quorums, voice
+  const [laborHours, careQuorums, solved] = await generalPool.protectionMetrics();
+  const [anchorHans, anchorBlossom] = await Promise.all([
+    cowRating.protectionAnchorLive(4),
+    cowRating.protectionAnchorLive(1),
+  ]);
+  const r1Budget = await cowRating.voiceBudget(r1.address);
+  const r1Locked = await cowRating.voiceLocked(r1.address);
+  console.log(
+    `protection: laborHours=${laborHours} careQuorums=${careQuorums} solved=${solved} ` +
+      `anchor[Hans]=${anchorHans} anchor[Blossom]=${anchorBlossom} ` +
+      `voice[r1]=${r1Locked}/${r1Budget}`
   );
 
   // ---- Phase C: causes + movement cycle

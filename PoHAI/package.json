@@ -15,6 +15,7 @@
     "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",
     "seed": "hardhat run scripts/seedDemo.js --network localhost",
     "server": "node server/index.js",
+    "sim": "node simulator/server.js",
     "frontend": "npm --prefix frontend run dev",
     "dev": "concurrently -k -n chain,api,web -c yellow,cyan,green \"npm run node\" \"npm run server\" \"npm run frontend\"",
     "build:frontend": "npm --prefix frontend run build"

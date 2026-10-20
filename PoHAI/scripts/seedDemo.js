@@ -27,7 +27,7 @@ const COWS = [
     story: "Golden butterfat. Still waiting for enough raters to call her home." },
   { name: "Hans", breed: "Brown Swiss", age: 7, image: "🐂", plan: "herd", need: 500,
     story: "Old, soft-spoken, and the herd's literal anchor. Currently needs 500/mo for hillside grazing lease." },
-  { name: "Klara", breed: "Simmental", age: 5, image: "🐄", plan: "herd",
+  { name: "Klara", breed: "Simmental", age: 5, image: "🐄", plan: "half",
     story: "Moves like a draft horse, eats like a teenager." },
   { name: "Greta", breed: "Angus", age: 2, image: "🐂", plan: "plain",
     story: "Fresh arrival. No rating, no noise — a blank ledger." },
@@ -46,7 +46,7 @@ async function main() {
   const deploy = JSON.parse(fs.readFileSync(deployFile, "utf8"));
 
   const signers = await ethers.getSigners();
-  const [deployer, r1, r2, r3, r4, r5, r6] = signers;
+  const [deployer, r1, r2, r3, r4, r5, r6, buyer] = signers;
   const raters = [r1, r2, r3, r4, r5, r6];
 
   const stasis = await ethers.getContractAt("Stasis", deploy.stasis);
@@ -54,6 +54,7 @@ async function main() {
   const cowRating = await ethers.getContractAt("CowRating", deploy.cowRating);
   const attestation = await ethers.getContractAt("Attestation", deploy.attestation);
   const generalPool = await ethers.getContractAt("GeneralPool", deploy.generalPool);
+  const academy = await ethers.getContractAt("Academy", deploy.academy);
 
   const existing = Number(await cowNFT.nextTokenId());
   if (existing > 1) {
@@ -62,12 +63,62 @@ async function main() {
     return;
   }
 
-  console.log("Granting genesis score to six demo raters…");
-  for (const r of raters) {
-    await stasis.grantGenesis(r.address, 20_000);
+  // ---- zero-start: pin the curriculum, then everyone earns their way in ----
+  // No genesis grants. Raters complete the cow-care course (grader-signed
+  // completions, exactly what the server does) and leave with 700 Stasis —
+  // the score they stake, bond and vote with below is *earned*.
+  console.log("Pinning the cow-care curriculum on-chain…");
+  const academyServer = require("../server/academy");
+  for (const l of academyServer.LESSONS) {
+    const { hash, reward, cert } = academyServer.lessonFile(l.id);
+    await academy.setLesson(l.id, hash, reward, cert);
+  }
+
+  console.log("Raters taking the cow-care course (7 lessons each)…");
+  const courseDomain = {
+    name: "HoofProofAcademy",
+    version: "1",
+    chainId: (await ethers.provider.getNetwork()).chainId,
+    verifyingContract: await academy.getAddress(),
+  };
+  const courseTypes = { Completed: [
+    { name: "lessonId", type: "uint8" },
+    { name: "account", type: "address" },
+  ] };
+  for (const r of [...raters, buyer]) {
+    for (const l of academyServer.LESSONS) {
+      const sig = await deployer.signTypedData(courseDomain, courseTypes, {
+        lessonId: l.id,
+        account: r.address,
+      });
+      await academy.connect(r).complete(l.id, sig);
+    }
+    const score = await stasis.effectiveScore(r.address);
+    console.log(`  ${r.address.slice(0, 10)}… certified · score ${score}`);
   }
 
   console.log("Minting cows + registering metadata…");
+  // Server-idempotent: reuse the oldest same-name record if one exists
+  // (re-link it to the fresh token) instead of appending a duplicate row.
+  const known = await (await fetch(`${API}/api/cows`)).json().catch(() => []);
+  const byName = new Map();
+  for (const r of known) {
+    if (!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push(r);
+  }
+  let hansNeedClaim = 0n;
+  // Spread stakes round-robin across the seven funded accounts so no account
+  // over-commits: with sound money, conviction must be chosen, not sprayed.
+  const stakers = [r1, r2, r3, r4, r5, r6, buyer];
+  const stakeState = { cursor: 0 };
+  const pickStakers = (k) => {
+    const picked = [];
+    for (let i = 0; i < k; i++) {
+      picked.push(stakers[stakeState.cursor % stakers.length]);
+      stakeState.cursor += 1;
+    }
+    return picked;
+  };
   for (const [i, cow] of COWS.entries()) {
     const cid = `ipfs://demo-cow-${i + 1}`;
     const tx = await cowNFT.mintCow(cid);
@@ -76,12 +127,18 @@ async function main() {
       rc.logs.map((l) => cowNFT.interface.parseLog(l)).find((p) => p?.name === "CowMinted").args.tokenId
     );
 
-    const res = await fetch(`${API}/api/cows`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: cow.name, breed: cow.breed, age: cow.age, story: cow.story, image: cow.image }),
-    });
-    const record = await res.json();
+    let record = (byName.get(cow.name) || []).find((r) => r.tokenId == null)
+      || (byName.get(cow.name) || [])[0];
+    if (record) {
+      console.log(`  reusing server record ${record.cid} for ${cow.name}`);
+    } else {
+      const res = await fetch(`${API}/api/cows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cow.name, breed: cow.breed, age: cow.age, story: cow.story, image: cow.image }),
+      });
+      record = await res.json();
+    }
 
     await fetch(`${API}/api/cows/${encodeURIComponent(record.cid)}`, {
       method: "PATCH",
@@ -89,16 +146,31 @@ async function main() {
       body: JSON.stringify({ tokenId, owner: deployer.address }),
     });
 
-    await applyPlan(cow.plan, tokenId, { cowNFT, cowRating, attestation, raters, r1, deployer });
+    await applyPlan(cow.plan, tokenId, {
+      cowNFT, cowRating, attestation, raters, r1, r6, buyer, deployer, pickStakers,
+    });
 
     if (cow.need !== undefined) {
       // Hans carries a real, attested funding need so the lifecycle can be demoed:
       // "Report need 0" on the frontend reduces it and credits the solver.
-      await attestation.connect(r1).attest(tokenId, 5, "ipfs://funding-hans", cow.need, ZERO, 100);
+      // Quorum is 2: r1 reports, r2 corroborates (r1 is the solver).
+      const needArgs = [tokenId, 5, "ipfs://funding-hans", cow.need, ZERO, 100];
+      const needId = await attestation.connect(r1).attest.staticCall(...needArgs);
+      await attestation.connect(r1).attest(...needArgs);
+      await attestation.connect(r2).attest(...needArgs);
+      // Stash the executed claim id: care earmarks must cite proof.
+      if (cow.name === "Hans") hansNeedClaim = needId;
     }
 
     console.log(`  #${tokenId} ${cow.name} · ${cow.plan}`);
   }
+
+  // Give the flagship cows a starting rating. Voices come from accounts that
+  // still have free score after staking, and are downgraded if not.
+  console.log("Seeding ratings (voiced Stasis)…");
+  await guardedBoost(stasis, cowRating, r6, 1);    // Blossom
+  await guardedBoost(stasis, cowRating, buyer, 2); // Daisy
+  await guardedBoost(stasis, cowRating, r1, 4);    // Hans
 
   // The funding lifecycle lets the owner record a *new* need once per period.
   // Fast-forward 31 days so the demo's first "Report need 0" is a valid action.
@@ -106,7 +178,7 @@ async function main() {
   await hre.network.provider.send("evm_mine", []);
 
   // ---- Phase A+B demo layer ------------------------------------------------
-  // Voting power, sweat equity, Rajas, the care pool and the platform index.
+  // Voting power, sweat equity, the care pool and the platform index.
   // Wrapped loosely so a hiccup here warns instead of aborting the seed.
   try {
     console.log("Phase A+B demo layer…");
@@ -118,14 +190,12 @@ async function main() {
     }
 
     // Seed the GeneralPool treasury and earmark care allowance for Hans.
+    // Hans is Active with an executed funding-need record: anchor live, proof cited.
     await deployer.sendTransaction({ to: generalPool.getAddress(), value: ethers.parseEther("0.5") });
-    await generalPool.allocateCare(4, ethers.parseEther("0.25"));
+    await generalPool.allocateCare(4, ethers.parseEther("0.25"), hansNeedClaim);
 
-    // r1 converts influence into spendable Rajas credits.
-    await generalPool.connect(r1).convertSattvaToRajas(1000);
-
-    // r1 has real momentum (boosts + stakes before the +31d jump, half
-    // decayed): claim the "high rating gas you less" rebate from the pool.
+    // r1 reported Hans' need (solver, corroborated) and stays active: that is
+    // protection work, so the momentum-scaled gas rebate is claimable.
     await generalPool.connect(r1).claimGasRebate();
 
     // Open the platform value index with two snapshots.
@@ -195,12 +265,28 @@ async function main() {
         method: "POST",
         body: form,
       });
+
+      // Anchor the evidence on-chain: r2 registers authorship as
+      // protection-linked, r3 curates it with an attributed vote.
+      const evKey = ethers.keccak256(ethers.toUtf8Bytes(`evidence:${hash}`));
+      await cowRating.connect(r2).registerContent(1, 1, evKey, true);
+      await cowRating.connect(r3)["vote(uint256,uint8,bytes32,uint256,address)"](1, 1, evKey, 1_000, r2.address);
+
+      // r2 has now earned oracle credibility: a second document arrives with
+      // a trust head start that an independent vote locks in permanently.
+      const hash2 = crypto.createHash("sha256").update(photo).update("second").digest("hex");
+      const evKey2 = ethers.keccak256(ethers.toUtf8Bytes(`evidence:${hash2}`));
+      await cowRating.connect(r2).registerContent(1, 1, evKey2, true);
+      const locked2 = await cowRating.contentKeyOf(1, 1, evKey2).then((k) => cowRating.contentProvisional(k));
+      console.log(`  r2 oracle cred=${await cowRating.oracleCred(r2.address)} head start=${locked2}`);
     }
 
     // Prime the cycle baseline, let the field move (active raters), then settle.
+    // r5/r6 vote with free voice budgets, so the movement is real and visible
+    // (r1/r2 already locked their budgets defending the herd's ratings).
     await generalPool.settleCycle();
-    await cowRating.connect(r1).boost(1, GENERAL, 1_000);
-    await cowRating.connect(r2).boost(1, GENERAL, 1_000);
+    await guardedBoost(stasis, cowRating, r5, 1);
+    await guardedBoost(stasis, cowRating, r6, 1);
     await hre.network.provider.send("evm_increaseTime", [13 * 60 * 60]);
     await hre.network.provider.send("evm_mine", []);
     await generalPool.settleCycle();
@@ -222,33 +308,47 @@ async function main() {
   console.log("(chain clock advanced +31 days + a cycle so the funding lifecycle and movement cycle are demoable)");
 }
 
-async function applyPlan(plan, tokenId, c) {
-  const { cowNFT, cowRating, attestation, raters, r1, deployer } = c;
+// Boost a cow, but only with voice the account can actually afford: since a
+// vote is a *voiced lien*, a fully-committed account has no free score left.
+async function guardedBoost(stasis, cowRating, account, tokenId) {
+  const free = Number(await stasis.freeScore(account));
+  const bps = free >= 115 ? 1_000 : free >= 60 ? 500 : 0;
+  if (bps === 0) {
+    console.log(`  (no free voice left for ${account.address.slice(0, 8)}… — boost skipped)`);
+    return;
+  }
+  await cowRating.connect(account).boost(tokenId, GENERAL, bps);
+}
 
-  if (plan === "active" || plan === "herd" || plan === "memorial") {
-    // Five independent raters × 200 pushes the cow across the activation
-    // threshold (1000) — the concentration cap makes a solo activation impossible.
-    for (const r of raters.slice(0, 5)) {
+async function applyPlan(plan, tokenId, c) {
+  const { cowNFT, cowRating, attestation, raters, r6, buyer, r1, deployer } = c;
+
+  // Zero-start budget: every account holds 700 Stasis earned from the course.
+  // A stake *bonds* that score and the concentration cap (20% of the 1000
+  // activation threshold) limits each account to 200 per cow — so activation
+  // takes 5 distinct stakers, and each rater can only back 3 cows at a time.
+  // Earned score means conviction must be chosen, not sprayed. Stakers are
+  // drawn round-robin (see `pickStakers`) so no account over-commits.
+  if (plan === "active" || plan === "herd") {
+    for (const r of c.pickStakers(5)) {
       await cowRating.connect(r).stakeRating(tokenId, 200);
     }
-    if (plan !== "memorial") {
-      await cowRating.connect(r1).boost(tokenId, GENERAL, 1_000);
-    }
   } else if (plan === "half") {
-    await cowRating.connect(raters[0]).stakeRating(tokenId, 200);
-    await cowRating.connect(raters[1]).stakeRating(tokenId, 200);
+    // Two stakers with free budgets: 400/1000 — visibly progressing.
+    for (const r of c.pickStakers(2)) {
+      await cowRating.connect(r).stakeRating(tokenId, 200);
+    }
+  } else if (plan === "memorial") {
+    // No stakes: a death claim from three bonded attestors freezes the
+    // record. The bond comes back when the claim executes.
+    for (const r of raters.slice(0, 3)) {
+      await attestation.connect(r).attest(tokenId, 3, "ipfs://death-evidence", 0, ZERO, 100);
+    }
   }
 
   if (plan === "herd") {
     // The cow owner joins demo Herd 7 (two+ members give everyone a bonus).
     await cowNFT.connect(deployer).setHerd(tokenId, 7);
-  }
-
-  if (plan === "memorial") {
-    // Three bonded raters confirm the death → the record freezes as Memorial.
-    for (const r of raters.slice(0, 3)) {
-      await attestation.connect(r).attest(tokenId, 3, "ipfs://death-evidence", 0, ZERO, 100);
-    }
   }
 }
 
