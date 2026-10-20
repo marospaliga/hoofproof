@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HoofProof rating simulator</title>
+<style>
+  :root { color-scheme: dark; --border: #2a2f3a; }
+  body { font-family: system-ui, sans-serif; background: #0d1117; color: #e6edf3; margin: 0; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .panel { background: #161b22; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-top: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .muted { color: #8b949e; font-size: 12px; }
+  button { background: #21262d; color: #e6edf3; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  button.primary { background: #3fb950; border-color: #3fb950; color: #04120a; font-weight: 600; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.active-acct { border-color: #3fb950; }
+  input, select { background: #0d1117; color: #e6edf3; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  #log { font-family: monospace; font-size: 12px; max-height: 260px; overflow-y: auto; white-space: pre-wrap; }
+  .acct { min-width: 200px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>🐄 HoofProof rating simulator <span class="muted">test keys only</span></h2>
+  <div class="muted">Acts as N throwaway wallets (Hardhat dev mnemonic) against your local chain. Nothing here touches real money or MetaMask.</div>
+
+  <div class="panel">
+    <div class="row">
+      <strong>Acting as:</strong>
+      <span id="me" class="muted">—</span>
+      <span id="mestats" class="muted"></span>
+    </div>
+    <div id="accounts" class="row" style="margin-top:8px"></div>
+  </div>
+
+  <div class="panel">
+    <strong>Field</strong> <span id="field" class="muted"></span>
+    <div id="pool" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;align-items:center"></div>
+    <div class="row" style="margin-top:8px">
+      <button id="sc-cold">▶ Cold start a cow</button>
+      <button id="sc-dilute">▶ Dilution demo</button>
+      <button id="sc-headstart">▶ Head-start demo</button>
+      <button id="sc-anchor">▶ Anchor-gate demo</button>
+      <button id="sc-course">▶ Course run (zero-start)</button>
+      <button id="refresh">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <strong>🗺️ Field</strong> <span class="muted">every voter, live — widths are share of total score</span>
+    <div id="fieldbar" style="display:flex;height:22px;border-radius:6px;overflow:hidden;margin-top:8px;border:1px solid var(--border)"></div>
+    <div id="fieldtotals" class="muted" style="margin-top:6px"></div>
+    <table style="margin-top:8px">
+      <thead><tr><th>#</th><th>Score</th><th>Free</th><th>VP</th><th>Mom</th><th>Voice (locked/budget)</th><th>Prot</th><th>Cred</th></tr></thead>
+      <tbody id="voters"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <strong>💬 Forum</strong> <span class="muted">post as yourself, switch accounts, rate — watch the ripples (post → cow → author → your voice)</span>
+    <div class="row" style="margin-top:8px">
+      <input id="forum-cow" type="number" min="1" value="1" style="width:70px" title="Cow #" />
+      <input id="forum-text" placeholder="write a post as the current account…" style="flex:1;min-width:200px" />
+      <label class="muted"><input type="checkbox" id="forum-linked" /> protection doc</label>
+      <button id="forum-post" class="primary">Post</button>
+      <button id="forum-load">Load thread</button>
+    </div>
+    <div id="forum-impact" class="muted" style="margin-top:8px">no votes yet this session</div>
+    <div id="forum-posts" style="margin-top:8px"></div>
+  </div>
+
+  <div class="panel">
+    <strong>🔴 Live thread</strong> <span class="muted">bots vote a post every few seconds — watch rating breathe: votes land, budgets fill, dilution bites</span>
+    <div class="row" style="margin-top:8px">
+      <input id="live-cow" type="number" min="1" value="1" style="width:70px" title="Cow to post on" />
+      <input id="live-text" placeholder="post text (hashed on-chain)" style="flex:1;min-width:200px" />
+      <button id="live-open" class="primary">Open live post</button>
+      <button id="live-start" disabled>▶ Bots</button>
+      <button id="live-stop" disabled>⏹ Stop</button>
+      <label class="muted"><input type="checkbox" id="autorefresh" checked /> auto-refresh tables</label>
+    </div>
+    <div id="live-status" class="muted" style="margin-top:8px">no live post yet</div>
+    <div id="live-spark" style="font-size:20px;letter-spacing:2px;margin-top:4px"></div>
+    <div id="live-bots" class="muted" style="margin-top:4px"></div>
+  </div>
+
+  <div class="panel">
+    <strong>Cows</strong>
+    <table>
+      <thead><tr><th>#</th><th>Name</th><th>Status</th><th>Rating</th><th>Activation (stakes only)</th><th>Backing</th><th>Anchor</th><th>My stake</th><th>Act</th></tr></thead>
+      <tbody id="cows"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <strong>Log</strong>
+    <div id="log"></div>
+  </div>
+</div>
+<script type="importmap">{ "imports": { "ethers": "https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.min.js" } }</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
