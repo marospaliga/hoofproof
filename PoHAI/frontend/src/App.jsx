@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Wallet from "./components/Wallet.jsx";
 import CowList from "./components/CowList.jsx";
 import CowDetail from "./components/CowDetail.jsx";
+import Trending from "./components/Trending.jsx";
+import Course from "./components/Course.jsx";
+import PoolGauge from "./components/PoolGauge.jsx";
 import MintModal from "./components/MintModal.jsx";
 import Docs from "./components/Docs.jsx";
 import Events from "./components/Events.jsx";
@@ -21,14 +24,15 @@ export default function App() {
   const [config, setConfig] = useState(DEFAULT_CONTRACTS);
   const [wallet, setWallet] = useState(null);
   const [contracts, setContracts] = useState(null);
-  const [rep, setRep] = useState({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, rajas: 0 });
+  const [rep, setRep] = useState({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, voiceLocked: 0, voiceBudget: 0, protection: 0 });
   const [cows, setCows] = useState([]);
   const [selectedCid, setSelectedCid] = useState(null);
-  const [view, setView] = useState("herd"); // "herd" | "docs" | "events" | "profile"
+  const [view, setView] = useState("herd"); // "herd" | "docs" | "events" | "profile" | "trending" | "course"
   const [showMint, setShowMint] = useState(false);
   const [notice, setNotice] = useState(null);
   const [connectError, setConnectError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
   const noticeTimer = useRef(null);
   const inFlight = useRef(false);
 
@@ -102,6 +106,7 @@ export default function App() {
 
   async function onConnect() {
     setConnectError("");
+    setConnecting(true);
     try {
       const w = await connectWallet(config.network);
       const c = getContracts(w.signer, config);
@@ -116,6 +121,8 @@ export default function App() {
       notify("Wallet connected. Your Stasis: " + r.score);
     } catch (err) {
       setConnectError(friendlyError(err));
+    } finally {
+      setConnecting(false);
     }
   }
 
@@ -141,13 +148,15 @@ export default function App() {
   function onDisconnect() {
     setWallet(null);
     setContracts(null);
-    setRep({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, rajas: 0 });
+    setRep({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, voiceLocked: 0, voiceBudget: 0, protection: 0 });
     refresh();
   }
 
-  async function handleMinted() {
+  async function handleMinted(cid) {
     setShowMint(false);
+    setView("herd");
     await refresh();
+    if (cid) setSelectedCid(cid);
     if (contracts && wallet) {
       setRep(await myReputation(contracts, wallet.account));
     }
@@ -172,10 +181,26 @@ export default function App() {
         <button
           onClick={() => {
             setSelectedCid(null);
+            setView("course");
+          }}
+        >
+          🎓 Academy
+        </button>
+        <button
+          onClick={() => {
+            setSelectedCid(null);
             setView("events");
           }}
         >
           🎗️ Causes
+        </button>
+        <button
+          onClick={() => {
+            setSelectedCid(null);
+            setView("trending");
+          }}
+        >
+          🔥 Trending
         </button>
         <button
           onClick={() => {
@@ -192,14 +217,28 @@ export default function App() {
           error={connectError}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          connecting={connecting}
         />
       </div>
 
       <div className="container">
         {loading ? (
           <div className="loading">Loading the herd…</div>
+        ) : view === "course" ? (
+          <Course
+            contracts={contracts}
+            account={wallet?.account}
+            notify={notify}
+            onEarned={() => {
+              if (contracts && wallet) {
+                myReputation(contracts, wallet.account).then(setRep).catch(() => {});
+              }
+            }}
+          />
         ) : view === "events" ? (
           <Events contracts={contracts} account={wallet?.account} notify={notify} />
+        ) : view === "trending" ? (
+          <Trending cows={cows} onOpen={(cow) => setSelectedCid(cow.cid)} />
         ) : view === "profile" ? (
           <Profile
             address={wallet?.account}
@@ -223,6 +262,16 @@ export default function App() {
           <Docs onBack={() => setView("herd")} />
         ) : (
           <>
+            <PoolGauge />
+            {rep.score === 0 && (
+              <div className="zero-start">
+                You're at <strong>0 Stasis</strong> — that's how everyone starts.{" "}
+                <button className="link" onClick={() => setView("course")}>
+                  Take the cow-care course →
+                </button>{" "}
+                to earn your first reputation, then stake, vote and attest.
+              </div>
+            )}
             <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
               <h2 style={{ margin: 0 }}>The herd</h2>
               <div className="row" style={{ gap: 8 }}>

@@ -67,4 +67,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ address, type, detail }),
     }),
+
+  // ------------------------------------------------------- rating index (P1)
+
+  // Read-only views recomputed from chain logs (chain enforces, server displays).
+  cowRatings: (tokenId) => req(`/ratings/${encodeURIComponent(tokenId)}`),
+  contentInfo: (key) => req(`/content/${encodeURIComponent(key)}`),
+  trending: () => req("/trending"),
+  ledger: (tokenId) => req(`/ledger/${encodeURIComponent(tokenId)}`),
+  curators: (tokenId) => req(`/curators/${encodeURIComponent(tokenId)}`),
+  authorInfo: (address) => req(`/authors/${encodeURIComponent(address)}`),
+
+  // Academy: course lessons (text + questions, never answers) and quiz
+  // grading. A pass returns an EIP-712 signature to submit on-chain.
+  academyLessons: () => req("/academy/lessons"),
+  submitQuiz: (address, lessonId, answers) =>
+    req("/academy/submit", {
+      method: "POST",
+      body: JSON.stringify({ address, lessonId, answers }),
+    }),
+
+  // Whole-field rating-pool indicator (live from the pool contract).
+  pool: () => req("/pool"),
+
+  // Moderation cases (server verifies execution on-chain before hiding).
+  moderationInfo: (id) => req(`/moderation/${encodeURIComponent(id)}`),
+  applyModeration: (proposalId) =>
+    req("/moderation/apply", { method: "POST", body: JSON.stringify({ proposalId }) }),
 };

@@ -5,6 +5,7 @@ import { api } from "../lib/api.js";
 import {
   createFundEvent,
   contributeEvent,
+  approveSpend,
   spendEvent,
   closeEventAction,
   settleCycle,
@@ -24,8 +25,10 @@ export default function Events({ contracts, account, notify }) {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [goal, setGoal] = useState("");
+  const [linkedCow, setLinkedCow] = useState("");
   const [amounts, setAmounts] = useState({});
   const [spends, setSpends] = useState({});
+  const [proofs, setProofs] = useState({});
   const [busy, setBusy] = useState("");
 
   async function reload() {
@@ -73,13 +76,15 @@ export default function Events({ contracts, account, notify }) {
     if (!title.trim() || !goal) return;
     const goalWei = (BigInt(Math.round(Number(goal) * 1e18))).toString();
     const cid = `ipfs://event-${Date.now().toString(16)}`;
-    const id = await run("Create event", () => createFundEvent(contracts, cid, goalWei));
+    const linked = linkedCow ? Number(linkedCow) : 0;
+    const id = await run("Create event", () => createFundEvent(contracts, cid, goalWei, linked));
     if (id !== null) {
       await api.createEventMeta({ eventId: id, title: title.trim(), description: desc.trim(), goal: goalWei });
       await api.logActivity(account, "event-create", `Opened a cause: ${title.trim()}`);
       setTitle("");
       setDesc("");
       setGoal("");
+      setLinkedCow("");
     }
   }
 
@@ -92,12 +97,21 @@ export default function Events({ contracts, account, notify }) {
     setAmounts({ ...amounts, [id]: "" });
   }
 
+  async function approve(id) {
+    const val = spends[id];
+    const proof = proofs[id];
+    if (!val || Number(val) <= 0 || !proof) return;
+    const wei = (BigInt(Math.round(Number(val) * 1e18))).toString();
+    await run("Approve release", () => approveSpend(contracts, id, wei, account, Number(proof)));
+  }
+
   async function spend(id) {
     const val = spends[id];
-    if (!val || Number(val) <= 0) return;
+    const proof = proofs[id];
+    if (!val || Number(val) <= 0 || !proof) return;
     const wei = (BigInt(Math.round(Number(val) * 1e18))).toString();
-    await run("Release funds", () => spendEvent(contracts, id, wei, account));
-    await api.logActivity(account, "event-spend", `Released ${val} ETH from cause #${id}`);
+    await run("Release funds", () => spendEvent(contracts, id, wei, account, Number(proof)));
+    await api.logActivity(account, "event-spend", `Released ${val} ETH from cause #${id} (proof #${proof})`);
     setSpends({ ...spends, [id]: "" });
   }
 
@@ -121,8 +135,8 @@ export default function Events({ contracts, account, notify }) {
         <h3 style={{ marginTop: 0 }}>The movement cycle 🎗️</h3>
         <div className="muted" style={{ fontSize: 13, maxWidth: 720 }}>
           Every <b>{cycle ? Math.round(cycle.period / 3600) : "?"} h</b> the pool measures how
-          much the whole field moved — growth in rated backing, rating points, active cows and
-          Rajas — and mints a credit pool of <b>{cycle ? cycle.ratio / 100 : "?"}×</b> that
+          much protection actually happened — executed care quorums, attested labor
+          hours, graduated cows — and mints a credit pool of <b>{cycle ? cycle.ratio / 100 : "?"}×</b> that
           movement (capped at {cycle ? cycle.cap : "?"} pts). The pool is split{" "}
           <b>{cycle ? cycle.share / 100 : "?"}% to backers</b> (pro rata by contribution) and{" "}
           <b>{cycle ? (100 - cycle.share / 100) : "?"}% to active raters</b> (pro rata by
@@ -193,9 +207,13 @@ export default function Events({ contracts, account, notify }) {
         </div>
         <div className="row mt12">
           <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Why does the herd need this?" />
+          <input value={linkedCow} onChange={(e) => setLinkedCow(e.target.value)} placeholder="Cow # (optional)" type="number" min="1" style={{ width: 110 }} />
           <button className="primary" type="submit" disabled={!title.trim() || !goal || !!busy || !account}>
             {busy === "Create event" ? "…" : "Open cause"}
           </button>
+        </div>
+        <div className="muted mt4" style={{ fontSize: 12 }}>
+          Linking a cow gates releases on that cow's live protection anchor; general causes need any executed protection proof.
         </div>
       </form>
 
@@ -255,7 +273,19 @@ export default function Events({ contracts, account, notify }) {
                       step="0.01"
                       style={{ width: 110 }}
                     />
-                    <button disabled={!spends[e.id] || !!busy} onClick={() => spend(e.id)}>
+                    <input
+                      value={proofs[e.id] || ""}
+                      onChange={(ev) => setProofs({ ...proofs, [e.id]: ev.target.value })}
+                      placeholder="Proof claim #"
+                      type="number"
+                      min="1"
+                      style={{ width: 110 }}
+                      title="Executed protection claim id that justifies this release"
+                    />
+                    <button disabled={!spends[e.id] || !proofs[e.id] || !!busy} onClick={() => approve(e.id)}>
+                      {busy === "Approve release" ? "…" : "Approve"}
+                    </button>
+                    <button disabled={!spends[e.id] || !proofs[e.id] || !!busy} onClick={() => spend(e.id)}>
                       {busy === "Release funds" ? "…" : "Release to me"}
                     </button>
                     <button disabled={!!busy} onClick={() => close(e.id)}>Close</button>

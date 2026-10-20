@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fmtDate, shortAddr } from "../config.js";
 import { api } from "../lib/api.js";
-import { myReputation, contentHash } from "../lib/chain.js";
+import { myReputation, contentHash, claimGasRebate, friendlyError } from "../lib/chain.js";
 import Name from "./Name.jsx";
 
 // One wallet's public page: identity (off-chain, wallet-claimable) + live
@@ -11,6 +11,7 @@ export default function Profile({ address, contracts, account, rep, cows, notify
   const [profile, setProfile] = useState(null);
   const [evidence, setEvidence] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [author, setAuthor] = useState(null);
   const [stats, setStats] = useState(rep);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,6 +35,7 @@ export default function Profile({ address, contracts, account, rep, cows, notify
       .catch(() => alive && setProfile(null));
     api.listEvidence(address).then((items) => alive && setEvidence(items)).catch(() => {});
     api.getActivity(address).then((list) => alive && setActivity(list)).catch(() => {});
+    api.authorInfo(address).then((a) => alive && setAuthor(a)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -105,6 +107,21 @@ export default function Profile({ address, contracts, account, rep, cows, notify
       links: (profile?.links || []).join(", "),
     });
     setEditing(true);
+  }
+
+  async function claimRebate() {
+    if (!contracts) return;
+    setBusy(true);
+    try {
+      await claimGasRebate(contracts);
+      notify("Gas rebate claimed — the pool covers protectors' fees.");
+      const s = await myReputation(contracts, address);
+      setStats(s);
+    } catch (err) {
+      notify(friendlyError(err), "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -179,14 +196,38 @@ export default function Profile({ address, contracts, account, rep, cows, notify
             </div>
             <div className="stat">
               <div className="k">Momentum</div>
-              <div className="v">{(stats.momentum / 100).toFixed(2)}×</div>
+              <div className="v">{(stats.momentum / 10000).toFixed(2)}×</div>
               <div className="muted" style={{ fontSize: 12 }}>sustained activity</div>
             </div>
             <div className="stat">
-              <div className="k">Rajas</div>
-              <div className="v">{stats.rajas}</div>
-              <div className="muted" style={{ fontSize: 12 }}>action credits</div>
+              <div className="k">Voice</div>
+              <div className="v">{stats.voiceLocked ?? 0}/{stats.voiceBudget ?? 0}</div>
+              <div className="muted" style={{ fontSize: 12 }}>locked / budget (zero-sum)</div>
             </div>
+            <div className="stat">
+              <div className="k">Protection</div>
+              <div className="v">{stats.protection ?? author?.protection ?? 0}</div>
+              <div className="muted" style={{ fontSize: 12 }}>care work ledger</div>
+            </div>
+            <div className="stat">
+              <div className="k">Documenting</div>
+              <div className="v">+{author?.earned ?? 0}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Stasis from {(author?.pieces || []).length} curated piece{(author?.pieces || []).length === 1 ? "" : "s"}
+              </div>
+            </div>
+            {mine && (
+              <div className="stat">
+                <div className="k">Gas rebate</div>
+                <div className="v">
+                  <button className="thumb" disabled={busy || !contracts} onClick={claimRebate}>
+                    {busy ? "…" : "⛽ Claim"}
+                  </button>
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>for sustained protectors</div>
+              </div>
+            )}
+
             <div className="stat">
               <div className="k">Oracle</div>
               <div className="v">{stats.oracle ?? "…"}</div>

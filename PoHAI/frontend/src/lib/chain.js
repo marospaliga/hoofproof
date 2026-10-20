@@ -100,7 +100,27 @@ export function friendlyError(err) {
     InsufficientStake: "You have not staked that much on this cow.",
     NotTokenOwner: "This action requires the cow's owner.",
     AlreadySupported: "You already supported this claim.",
-    InsufficientRajas: "You don't have that many Rajas action-credits.",
+    AlreadyRegistered: "This post is already anchored on-chain by someone else — first claim wins.",
+    AuthorMismatch: "That vote names the wrong author for this post. Check who anchored it first.",
+    UnknownContent: "This post isn't anchored on-chain yet — register it first, then vote.",
+    DormantContent: "This thread went dormant (no activity inside the window). A heartbeat reactivates it.",
+    VoiceBudgetExceeded: "Your voice is fully locked elsewhere. Unvote something or let dilution free it.",
+    NothingLocked: "You have no voice locked on that yet.",
+    TierMismatch: "Top-ups must keep the original conviction tier. Unstake first to switch tiers.",
+    BadTier: "Unknown conviction tier (0 flexible, 1 = 90d, 2 = 180d).",
+    TooManyKeys: "Reap at most 20 locks per transaction.",
+    NoAnchor: "That cow has no live protection anchor (fresh Care quorum, Labor or need record) — payoffs are locked until protectors report.",
+    NoProtection: "The gas rebate subsidises protectors: do protection work first (care, labor, need reports, protection-linked curation).",
+    NoProof: "Cite an executed protection claim id as proof for this release.",
+    ProofMismatch: "That proof concerns a different cow than this cause serves.",
+    NotApproved: "Large releases need a prior approval in an earlier block. Approve first, then release.",
+    UnknownItem: "That photo or post isn't anchored on-chain yet — only anchored items can be moderated.",
+    ItemMismatch: "That item belongs to a different cow.",
+    ProposalOpen: "There's already an open moderation case on this item — vote on it instead of opening another.",
+    AlreadyVoted: "You've already taken a side on this case.",
+    TooEarly: "Not executable yet — the timelock (dominant) or challenge window (contested) hasn't passed.",
+    WindowClosed: "The challenge window has closed — execute or accept the outcome.",
+    QuorumNotMet: "A contested case needs a majority plus distinct raters before it can execute.",
     AlreadyClaimed: "You can only claim the gas rebate once per period.",
     NoMomentum: "The gas rebate goes to raters with sustained momentum — your 1x is not enough yet. Stay active and claim again later.",
     EmptyPool: "The GeneralPool treasury is empty for that action.",
@@ -165,6 +185,8 @@ export function getContracts(signer, config) {
     attestation: new Contract(c.attestation, abis.attestation, signer),
     generalPool: new Contract(c.generalPool, abis.generalPool, signer),
     herdCouncil: new Contract(c.herdCouncil, abis.herdCouncil, signer),
+    moderation: c.moderation && abis.moderation ? new Contract(c.moderation, abis.moderation, signer) : null,
+    academy: c.academy && abis.academy ? new Contract(c.academy, abis.academy, signer) : null,
   };
 }
 
@@ -194,20 +216,72 @@ export async function enrichCow(record, contracts) {
 }
 
 export async function myReputation(contracts, account) {
-  const { stasis, cowRating, generalPool } = contracts;
-  const [score, bonded, votingPower, momentum, rajas] = await Promise.all([
+  const { stasis, cowRating } = contracts;
+  const [score, bonded, voiced, free, votingPower, momentum, locked, budget, protection] = await Promise.all([
     stasis.effectiveScore(account),
     stasis.bonded(account),
+    stasis.voiced(account),
+    stasis.freeScore(account),
     cowRating.votingPowerOf(account),
     cowRating.momentumBps(account),
-    generalPool.rajas(account),
+    cowRating.voiceLocked(account),
+    cowRating.voiceBudget(account),
+    cowRating.protectionActivity(account),
   ]);
   return {
     score: Number(score),
     bonded: Number(bonded),
+    voiced: Number(voiced),
+    free: Number(free),
     votingPower: Number(votingPower),
     momentum: Number(momentum),
-    rajas: Number(rajas),
+    voiceLocked: Number(locked),
+    voiceBudget: Number(budget),
+    protection: Number(protection),
+  };
+}
+
+// Preview a content/cow vote without sending: the credited rating (kind-weighted),
+// the damped author award, voice use and whether it dilutes priors. All view
+// calls — no gas. The curve is flat unless the owner has switched it on.
+export async function previewVote(contracts, account, kind, bps) {
+  const { stasis, cowRating } = contracts;
+  const [score, momentum, locked, budget, total, dBps, eBps, cBps] = await Promise.all([
+    stasis.effectiveScore(account),
+    cowRating.momentumBps(account),
+    cowRating.voiceLocked(account),
+    cowRating.voiceBudget(account),
+    cowRating.totalRatingPoints(),
+    cowRating.discussionBps().catch(() => 4000n),
+    cowRating.evidenceBps().catch(() => 10000n),
+    cowRating.cowVoteBps().catch(() => 10000n),
+  ]);
+  const raw = Math.floor((Number(score) * bps * Number(momentum)) / 1e8);
+  // kind: 1 = evidence (full), 2 = discussion (softened), else cow boost (full).
+  const kindBps = kind === 2 ? Number(dBps) : kind === 1 ? Number(eBps) : Number(cBps);
+  const weight = Math.floor((raw * kindBps) / 10000);
+  const totalN = Number(total);
+  const award = totalN > 0 && weight > 0
+    ? Math.floor((weight * 1000 * totalN) / (10000 * (totalN + weight)))
+    : 0;
+  return {
+    weight,
+    rawWeight: raw,
+    authorAward: award,
+    locked: Number(locked),
+    budget: Number(budget),
+    dilutes: Number(locked) + weight > Number(budget),
+    overBudget: Number(locked) > Number(budget),
+  };
+}
+
+export async function voiceLocks(contracts, account) {
+  const [keys, amounts, locked, budget] = await contracts.cowRating.voterLocks(account);
+  return {
+    keys: [...keys],
+    amounts: amounts.map(Number),
+    locked: Number(locked),
+    budget: Number(budget),
   };
 }
 
@@ -231,8 +305,15 @@ export async function mintCow(contracts, cid, account) {
   throw new ChainError("Mint succeeded but the token id could not be read.");
 }
 
-export async function stake(contracts, tokenId, amount) {
-  const tx = await contracts.cowRating.stakeRating(tokenId, amount);
+export async function stake(contracts, tokenId, amount, tier = 0) {
+  const tx = tier > 0
+    ? await contracts.cowRating.stakeRatingTiered(tokenId, amount, tier)
+    : await contracts.cowRating.stakeRating(tokenId, amount);
+  await tx.wait();
+}
+
+export async function pokeStake(contracts, tokenId, account) {
+  const tx = await contracts.cowRating.pokeStake(tokenId, account);
   await tx.wait();
 }
 
@@ -248,8 +329,53 @@ export async function boost(contracts, tokenId, bps) {
 }
 
 // Vote on an image (1) or post (2); cow votes go through boost().
-export async function voteContent(contracts, tokenId, kind, cidHash, bps) {
-  const tx = await contracts.cowRating.vote(tokenId, kind, cidHash, bps);
+// Attributed when the author is known (must match the on-chain registry).
+export async function voteContent(contracts, tokenId, kind, cidHash, bps, author = null) {
+  const c = contracts.cowRating;
+  const tx = author
+    ? await c.getFunction("vote(uint256,uint8,bytes32,uint256,address)")(tokenId, kind, cidHash, bps, author)
+    : await c.getFunction("vote(uint256,uint8,bytes32,uint256)")(tokenId, kind, cidHash, bps);
+  await tx.wait();
+}
+
+export async function registerContent(contracts, tokenId, kind, cidHash, protectionLinked) {
+  const tx = await contracts.cowRating.registerContent(tokenId, kind, cidHash, protectionLinked);
+  await tx.wait();
+}
+
+export async function unvote(contracts, key) {
+  const tx = await contracts.cowRating.unvote(key);
+  await tx.wait();
+}
+
+// ---------------------------------------------------------- moderation ---
+
+// Propose hiding (0) or restoring (1) an anchored photo/post. The proposer
+// counts as the first vote with their full reputation standing.
+export async function proposeModeration(contracts, tokenId, itemKey, action) {
+  if (!contracts.moderation) throw new ChainError("Moderation is not deployed on this chain.");
+  const tx = await contracts.moderation.propose(tokenId, itemKey, action);
+  const rc = await tx.wait();
+  for (const log of rc.logs) {
+    try {
+      const parsed = contracts.moderation.interface.parseLog(log);
+      if (parsed && parsed.name === "ModerationProposed") return Number(parsed.args.id);
+    } catch {
+      /* not our event */
+    }
+  }
+  throw new ChainError("Proposal created but its id could not be read.");
+}
+
+export async function challengeModeration(contracts, id, support) {
+  if (!contracts.moderation) throw new ChainError("Moderation is not deployed on this chain.");
+  const tx = await contracts.moderation.challenge(id, support);
+  await tx.wait();
+}
+
+export async function executeModeration(contracts, id) {
+  if (!contracts.moderation) throw new ChainError("Moderation is not deployed on this chain.");
+  const tx = await contracts.moderation.execute(id);
   await tx.wait();
 }
 
@@ -265,25 +391,90 @@ export async function attestLabor(contracts, tokenId, hours, worker) {
   await tx.wait();
 }
 
-export async function convertSattvaToRajas(contracts, amount) {
-  const tx = await contracts.generalPool.convertSattvaToRajas(amount);
+// Choose how much (0..10000 bps) of each future labor reward to commit back to
+// the cow as a locked rating lien. 10000 = commit it all.
+export async function setLaborCommitBps(contracts, bps) {
+  const tx = await contracts.cowRating.setLaborCommitBps(bps);
   await tx.wait();
 }
 
-export async function convertRajasToSattva(contracts, amount) {
-  const tx = await contracts.generalPool.convertRajasToSattva(amount);
+export async function laborCommitBps(contracts, account) {
+  return Number(await contracts.cowRating.laborCommitBps(account).catch(() => 0n));
+}
+
+// Permissionless, batched burn of the liens on a hidden item. Anyone can call
+// it; each voter loses at most the policy's capped share.
+export async function slashContent(contracts, key, maxVoters = 50) {
+  const tx = await contracts.cowRating.slashContent(key, maxVoters);
   await tx.wait();
 }
+
+// Burn Stasis to release real care money to the caller (the claim's worker or
+// the cow's owner). One redemption per claim; burned Stasis is gone for good.
+export async function redeemCare(contracts, tokenId, stasisAmount, claimRef) {
+  const tx = await contracts.generalPool.redeemCare(tokenId, stasisAmount, claimRef);
+  await tx.wait();
+}
+
+// One cow's care credit: live pool balance, the rate and the credit line.
+export async function careStatus(contracts, tokenId) {
+  const [poolWei, rateWei, rating, anchorLive] = await Promise.all([
+    contracts.generalPool.carePoolOf(tokenId).catch(() => 0n),
+    contracts.generalPool.careRateWei().catch(() => 10n ** 15n),
+    contracts.cowRating.ratingOf(tokenId).catch(() => 0n),
+    contracts.cowRating.protectionAnchorLive(tokenId).catch(() => false),
+  ]);
+  return {
+    poolWei,
+    rateWei,
+    creditLine: Number(rating),
+    anchorLive: !!anchorLive,
+  };
+}
+
+
 
 export async function claimGasRebate(contracts) {
   const tx = await contracts.generalPool.claimGasRebate();
   await tx.wait();
 }
 
+// --------------------------------------------------------------- academy ---
+
+// Submit a grader-signed quiz completion on-chain. The signature comes from
+// the server (POST /api/academy/submit) — it only ever signs a *pass*.
+export async function completeLesson(contracts, lessonId, signature) {
+  if (!contracts.academy) throw new ChainError("Academy is not deployed on this chain.");
+  const tx = await contracts.academy.complete(lessonId, signature);
+  await tx.wait();
+}
+
+// On-chain completion state for one account: which lessons are done and
+// whether the certified badge has been earned.
+export async function academyProgress(contracts, account) {
+  if (!contracts.academy) return null;
+  const count = Number(await contracts.academy.lessonCount());
+  const rows = [];
+  for (let id = 1; id <= count; id++) {
+    const [contentHash, reward, exists, cert] = await contracts.academy.lessonInfo(id);
+    if (!exists) continue;
+    rows.push({
+      id,
+      contentHash,
+      reward: Number(reward),
+      cert,
+      done: await contracts.academy.completed(account, id),
+    });
+  }
+  return { lessons: rows, certified: await contracts.academy.isCertified(account) };
+}
+
 // ---------------------------------------------------------- fund events / cycles ---
 
-export async function createFundEvent(contracts, cid, goalWei) {
-  const tx = await contracts.generalPool.createEvent(cid, goalWei);
+export async function createFundEvent(contracts, cid, goalWei, linkedTokenId = 0) {
+  const tx = linkedTokenId > 0
+    ? await contracts.generalPool.createEventForCow(cid, goalWei, linkedTokenId)
+    : await contracts.generalPool.createEvent(cid, goalWei);
   const rc = await tx.wait();
   const iface = contracts.generalPool.interface;
   for (const log of rc.logs) {
@@ -303,8 +494,15 @@ export async function contributeEvent(contracts, eventId, valueWei) {
   return valueWei;
 }
 
-export async function spendEvent(contracts, eventId, amountWei, to) {
-  const tx = await contracts.generalPool.spend(eventId, amountWei, to);
+export async function approveSpend(contracts, eventId, amountWei, to, claimRef) {
+  const tx = await contracts.generalPool.approveSpend(eventId, amountWei, to, claimRef);
+  await tx.wait();
+}
+
+// Releases cite an executed protection claim id as proof. Amounts above the
+// large-spend threshold need a prior approveSpend in an earlier block.
+export async function spendEvent(contracts, eventId, amountWei, to, claimRef) {
+  const tx = await contracts.generalPool.spend(eventId, amountWei, to, claimRef);
   await tx.wait();
 }
 
@@ -331,6 +529,7 @@ export async function listFundEvents(contracts) {
       raised: e.raised.toString(),
       spent: e.spent.toString(),
       closed: e.closed,
+      linkedTokenId: Number(e.linkedTokenId ?? 0),
     });
   }
   return rows;
@@ -402,14 +601,14 @@ export async function signMessage(contracts, message) {
   return runner.signMessage(message);
 }
 
-// Browser SHA-256 of an uploaded file, hex with a `0x` prefix to match the
-// convention used elsewhere in the app.
+// Browser SHA-256 of an uploaded file, hex without `0x` prefix to match the
+// server's verification (evidence:<sha256-hex>).
 export async function sha256Hex(buffer) {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   const hex = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  return `0x${hex}`;
+  return hex;
 }
 
 export async function proposeCouncil(contracts, herdId, text, durationDays = 3) {

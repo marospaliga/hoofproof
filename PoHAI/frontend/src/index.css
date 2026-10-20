@@ -273,3 +273,84 @@ textarea {
   font-family: inherit;
 }
 label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+
+/* ---------------------------------------------------------- pool gauge */
+.pool-gauge {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 14px 0;
+}
+.pool-gauge.error { color: var(--danger); }
+.pool-title { font-size: 13px; color: var(--muted); margin-bottom: 10px; letter-spacing: 0.03em; }
+.pool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 12px; }
+.pool-item { text-align: center; }
+.pool-value { font-size: 20px; font-weight: 700; color: var(--accent); }
+.pool-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pool-gauge.compact {
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 6px 12px; margin: 0; font-size: 12px;
+}
+.pool-dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+}
+.pool-cell em { color: var(--muted); font-style: normal; margin-right: 4px; }
+
+/* --------------------------------------------------------- zero-start */
+.zero-start {
+  background: var(--panel-2);
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+.zero-start button.link {
+  background: none; border: none; color: var(--accent-2);
+  cursor: pointer; padding: 0; font-size: 14px; text-decoration: underline;
+}
+
+/* ------------------------------------------------------------- course */
+.course-progress { margin: 14px 0; font-size: 14px; }
+.course-progress .badge { margin-left: 8px; background: var(--accent); color: #05120b; }
+.course-bar {
+  height: 8px; background: var(--panel-2);
+  border-radius: 999px; margin-top: 8px; overflow: hidden;
+}
+.course-bar-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+
+.lesson-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.lesson-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.lesson-card.open { border-color: var(--accent); }
+.lesson-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; color: var(--text);
+  padding: 12px 14px; cursor: pointer; text-align: left;
+}
+.lesson-num {
+  width: 26px; height: 26px; border-radius: 999px; background: var(--panel-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+.lesson-title { flex: 1; font-weight: 600; }
+.lesson-reward { color: var(--accent); font-weight: 700; }
+.lesson-card .chip {
+  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  background: var(--panel-2); color: var(--accent-2);
+}
+.lesson-body { padding: 0 14px 16px; }
+.lesson-text {
+  white-space: pre-wrap; font-family: inherit; font-size: 14px;
+  color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px; max-height: 340px; overflow-y: auto; margin: 0 0 14px;
+}
+.quiz-q { margin-bottom: 16px; }
+.quiz-q-text { font-weight: 600; margin-bottom: 8px; }
+.quiz-opt {
+  display: flex; gap: 8px; align-items: flex-start; font-size: 14px;
+  color: var(--text); margin: 4px 0; cursor: pointer;
+}
+.quiz-opt input { margin-top: 3px; }

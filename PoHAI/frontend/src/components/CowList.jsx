@@ -20,23 +20,28 @@ function CowCard({ cow, onOpen }) {
           <div className="k">Rating</div>
           <div className="v">{cow.rating}</div>
         </div>
-        <div className="stat" style={{ margin: 0 }}>
-          <div className="k">Backing</div>
-          <div className="v">{cow.backing}</div>
-        </div>
       </div>
     </div>
   );
 }
 
 export default function CowList({ cows, onOpen }) {
-  if (!cows.length) {
+  // Guardrails: hide unminted drafts (no token) and collapse any duplicate
+  // rows sharing a tokenId, so a double-seed can never render twins.
+  const seen = new Set();
+  const unique = (cows || []).filter((cow) => {
+    if (!cow.tokenId) return false;
+    if (seen.has(cow.tokenId)) return false;
+    seen.add(cow.tokenId);
+    return true;
+  });
+  if (!unique.length) {
     return <div className="loading">No cows yet. Mint the first one 🐂</div>;
   }
   return (
     <div className="cows-grid">
-      {cows.map((cow) => (
-        <CowCard key={cow.cid} cow={cow} onOpen={onOpen} />
+      {unique.map((cow) => (
+        <CowCard key={cow.tokenId} cow={cow} onOpen={onOpen} />
       ))}
     </div>
   );

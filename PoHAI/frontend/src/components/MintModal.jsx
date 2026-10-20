@@ -31,7 +31,7 @@ export default function MintModal({ contracts, account, onClose, onMinted, notif
       await api.linkToken(record.cid, tokenId, account);
 
       notify(`Cow #${tokenId} minted. Now it needs raters to become Active.`);
-      onMinted();
+      onMinted(record.cid);
     } catch (err) {
       notify(friendlyError(err), "error");
     } finally {

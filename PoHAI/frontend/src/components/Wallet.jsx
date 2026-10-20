@@ -1,6 +1,6 @@
 import Name from "./Name.jsx";
 
-export default function Wallet({ wallet, error, onConnect, onDisconnect }) {
+export default function Wallet({ wallet, error, onConnect, onDisconnect, connecting = false }) {
   return (
     <div className="inline">
       {wallet ? (
@@ -13,8 +13,8 @@ export default function Wallet({ wallet, error, onConnect, onDisconnect }) {
           <button onClick={onDisconnect}>Disconnect</button>
         </>
       ) : (
-        <button className="primary" onClick={onConnect} disabled={!!error}>
-          Connect wallet
+        <button className="primary" onClick={onConnect} disabled={connecting}>
+          {connecting ? "Connecting…" : "Connect wallet"}
         </button>
       )}
       {error && <span className="muted" style={{ maxWidth: 260, fontSize: 12 }}>{error}</span>}
