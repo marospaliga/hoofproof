@@ -64,6 +64,15 @@ contract Attestation is Ownable {
 
     uint256 public nextClaimId = 1;
 
+    // ---- execution registry (CowRating reads this for protection anchors)
+    mapping(uint256 => mapping(Kind => uint256)) public lastExecutedAt;
+    mapping(Kind => uint256) public executedCount;
+    mapping(bytes32 => uint256[]) private _byTokenKind;
+
+    /// @notice When true, a FundingNeed solver award is skipped unless someone
+    ///         other than the solver corroborated the claim (self-dealing brake).
+    bool public requireSolverCorroboration = true;
+
     event Attested(uint256 indexed claimId, uint256 indexed tokenId, Kind indexed kind, address attester, uint256 support, string cid);
     event ClaimExecuted(uint256 indexed claimId, Kind indexed kind, uint256 tokenId);
     event ClaimDisputed(uint256 indexed claimId, address disputer);
@@ -87,8 +96,12 @@ contract Attestation is Ownable {
         quorum[Kind.Revenue] = 2;
         quorum[Kind.Sale] = 3;
         quorum[Kind.Death] = 3;
-        quorum[Kind.FundingNeed] = 1;
+        quorum[Kind.FundingNeed] = 2;
         quorum[Kind.Labor] = 2;
+    }
+
+    function setRequireSolverCorroboration(bool value) external onlyOwner {
+        requireSolverCorroboration = value;
     }
 
     function setQuorum(Kind kind, uint256 value) external onlyOwner {
@@ -134,6 +147,7 @@ contract Attestation is Ownable {
                 postedAt: block.timestamp,
                 cid: cid
             });
+            _byTokenKind[_claimKey(tokenId, kind, value, subject)].push(claimId);
         }
 
         stasis.bond(msg.sender, bond);
@@ -153,9 +167,22 @@ contract Attestation is Ownable {
         }
     }
 
+    function _claimKey(uint256 tokenId, Kind kind, uint256 value, address subject)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(tokenId, kind, value, subject));
+    }
+
     function _findOpen(uint256 tokenId, Kind kind, uint256 value, address subject) internal view returns (uint256) {
-        // MVP note: linear scan. Fine for a testnet demo with dozens of claims;
-        // replace with an index keyed on (tokenId, kind) before a real pilot.
+        // Fast path: claims filed under the same (tokenId, kind, value, subject).
+        uint256[] storage idx = _byTokenKind[_claimKey(tokenId, kind, value, subject)];
+        for (uint256 i = 0; i < idx.length; i++) {
+            Claim storage c = claims[idx[i]];
+            if (c.state == State.Open) return idx[i];
+        }
+        // Fallback: full scan (covers claims filed before the index existed).
         for (uint256 id = 1; id < nextClaimId; id++) {
             Claim storage c = claims[id];
             if (c.state == State.Open && c.tokenId == tokenId && c.kind == kind && c.value == value && c.subject == subject) {
@@ -219,12 +246,21 @@ contract Attestation is Ownable {
         Kind kind = c.kind;
         uint256 tokenId = c.tokenId;
 
+        // Every execution — including evidence-only kinds — is timestamped so
+        // CowRating can treat recent quorum'd care as a protection anchor.
+        lastExecutedAt[tokenId][kind] = block.timestamp;
+        executedCount[kind] += 1;
+
         if (kind == Kind.Death) {
             cowRating.markMemorial(tokenId);
         } else if (kind == Kind.Sale) {
             cowRating.realWorldTransfer(tokenId, c.subject);
         } else if (kind == Kind.FundingNeed) {
-            cowRating.recordFundingNeed(tokenId, c.value, c.subject == address(0) ? c.attester : c.subject);
+            address solver = c.subject == address(0) ? c.attester : c.subject;
+            if (requireSolverCorroboration && !_supportedByOtherThan(claimId, solver)) {
+                solver = address(0); // no corroboration, no award — need still recorded
+            }
+            cowRating.recordFundingNeed(tokenId, c.value, solver);
         } else if (kind == Kind.Labor) {
             // Subject is the worker, value is the attested hours. The
             // reputation award is calculated by the rating engine so the same
@@ -266,5 +302,34 @@ contract Attestation is Ownable {
             stasis.slashBonded(account, amount, "claim refuted");
         }
         c.bond = 0;
+    }
+
+    /// @notice True if at least one supporter of the claim is not `account`.
+    function _supportedByOtherThan(uint256 claimId, address account) internal view returns (bool) {
+        address[] storage list = supporters[claimId];
+        for (uint256 i = 0; i < list.length; i++) {
+            if (list[i] != account && bondOf[claimId][list[i]] > 0) return true;
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------- proof for spenders
+
+    /// @notice Minimal claim introspection for money-moving contracts: they
+    ///         cite an executed claim id as proof instead of trusting prose.
+    function claimState(uint256 claimId) external view returns (uint8) {
+        return uint8(claims[claimId].state);
+    }
+
+    function claimToken(uint256 claimId) external view returns (uint256) {
+        return claims[claimId].tokenId;
+    }
+
+    function claimKind(uint256 claimId) external view returns (uint8) {
+        return uint8(claims[claimId].kind);
+    }
+
+    function claimSubject(uint256 claimId) external view returns (address) {
+        return claims[claimId].subject;
     }
 }

@@ -6,7 +6,11 @@ module.exports = {
   solidity: {
     version: "0.8.28",
     settings: {
-      optimizer: { enabled: true, runs: 200 },
+      // runs:1 + stripped metadata keep CowRating (the big rating engine) under
+      // the EIP-170 24 KB limit. Fine for the demo; bump runs for lower runtime
+      // gas if the contract ever shrinks.
+      optimizer: { enabled: true, runs: 1 },
+      metadata: { bytecodeHash: "none" },
       evmVersion: "cancun",
     },
   },

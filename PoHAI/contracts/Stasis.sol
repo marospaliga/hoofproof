@@ -7,7 +7,9 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 ///
 /// Design rules (from the architecture blueprint):
 ///  1. Stasis is a *score*, never a token. There is no `transfer`, no approval,
-///     no balance-of-allowance. It cannot be bought or sold.
+///     no balance-of-allowance. It cannot be bought or sold. Score may be
+///     encumbered as **collateral** (`bonded`) or as **voice** (`voiced`) — the
+///     latter is what a cow's rating is made of.
 ///  2. Gains are capped per period so that **steady progress** beats spikes.
 ///     Losses are uncapped — punishment should be immediate and total.
 ///  3. Genesis (founder) allocations decay linearly so the bootstrap set cannot
@@ -42,22 +44,35 @@ contract Stasis is Ownable {
     mapping(address => uint256) public score;
     /// Portion of `score` locked as collateral (cannot be spent or staked away).
     mapping(address => uint256) public bonded;
+    /// Portion of `score` committed as **voice** — a lien backing a rating.
+    /// Voiced Stasis is still the account's score (it keeps its voting weight),
+    /// but it cannot be spent, staked or double-committed. This is what makes
+    /// rating and Stasis the same substance: a cow's rating is exactly the
+    /// voiced score pointed at it.
+    mapping(address => uint256) public voiced;
     mapping(address => uint256) public lastActive;
     mapping(address => Genesis) public genesisOf;
     mapping(address => bool) public isModule;
 
     /// Sum of every raw score — used for supply-level statistics.
     uint256 public totalScore;
+    /// Sum of every voiced lien — the share of totalScore backing ratings.
+    uint256 public totalVoiced;
 
     event ModuleSet(address indexed module, bool allowed);
     event ScoreChanged(address indexed account, int256 delta, bytes32 reason);
     event Bonded(address indexed account, uint256 amount);
     event Unbonded(address indexed account, uint256 amount);
+    event Voiced(address indexed account, uint256 amount);
+    event Unvoiced(address indexed account, uint256 amount);
+    event VoicedTransferred(address indexed from, address indexed to, uint256 amount);
+    event VoicedBurned(address indexed account, uint256 amount, bytes32 reason);
     event GenesisGranted(address indexed account, uint256 amount);
 
     error NotModule();
     error InsufficientFree();
     error InsufficientBonded();
+    error InsufficientVoiced();
     error ZeroAddress();
 
     modifier onlyModule() {
@@ -108,6 +123,11 @@ contract Stasis is Ownable {
         return block.timestamp - last;
     }
 
+    /// @notice Total score currently encumbered by a lien (collateral or voice).
+    function lockedOf(address account) public view returns (uint256) {
+        return bonded[account] + voiced[account];
+    }
+
     /// @notice The score an account actually has right now, with pending decay applied.
     function effectiveScore(address account) public view returns (uint256) {
         uint256 s = score[account];
@@ -130,18 +150,19 @@ contract Stasis is Ownable {
             s -= decay;
         }
 
-        // Bonded collateral is protected from decay: locking rating must never
-        // make it impossible to unlock again. Only slashing can consume it.
-        uint256 b = bonded[account];
-        if (s < b) s = b;
+        // Bonded collateral and voiced liens are protected from decay: locking
+        // rating must never make it impossible to unlock again. Only explicit
+        // slashing (slashBonded / burnVoiced) can consume them.
+        uint256 floor_ = lockedOf(account);
+        if (s < floor_) s = floor_;
         return s;
     }
 
-    /// @notice Free (unbonded) Stasis available to spend or stake.
+    /// @notice Free (unencumbered) Stasis available to spend or stake.
     function freeScore(address account) public view returns (uint256) {
         uint256 e = effectiveScore(account);
-        uint256 b = bonded[account];
-        return e > b ? e - b : 0;
+        uint256 l = lockedOf(account);
+        return e > l ? e - l : 0;
     }
 
     function hasFree(address account, uint256 amount) external view returns (bool) {
@@ -181,8 +202,8 @@ contract Stasis is Ownable {
                 s -= decay;
             }
 
-            // Never let decay eat into bonded collateral (see effectiveScore).
-            uint256 floor_ = bonded[account];
+            // Never let decay eat into bonded collateral or voiced liens.
+            uint256 floor_ = lockedOf(account);
             if (s < floor_) s = floor_;
         }
 
@@ -211,7 +232,13 @@ contract Stasis is Ownable {
             }
         } else {
             uint256 value = uint256(-requested);
-            if (value > current) value = current;
+            // General punishment can only consume *free* score. Bonded and
+            // voiced score are consumed by their dedicated paths
+            // (`slashBonded`, `burnVoiced`) so the lien invariant survives.
+            uint256 locked = lockedOf(account);
+            uint256 free_;
+            if (current > locked) free_ = current - locked;
+            if (value > free_) value = free_;
             if (value > 0) {
                 score[account] -= value;
                 totalScore -= value;
@@ -238,8 +265,8 @@ contract Stasis is Ownable {
     /// @notice Voluntary exit cost. Uncapped; requires free balance.
     function spend(address account, uint256 amount, bytes32 reason) external onlyModule {
         _settle(account);
-        if (score[account] < amount) revert InsufficientFree();
-        if (bonded[account] > score[account] - amount) revert InsufficientFree();
+        uint256 locked = lockedOf(account);
+        if (score[account] < locked || score[account] - locked < amount) revert InsufficientFree();
         score[account] -= amount;
         totalScore -= amount;
         emit ScoreChanged(account, -int256(amount), reason);
@@ -248,9 +275,67 @@ contract Stasis is Ownable {
     /// @notice Lock score as collateral. Bonded score cannot be spent or staked away.
     function bond(address account, uint256 amount) external onlyModule {
         _settle(account);
-        if (score[account] - bonded[account] < amount) revert InsufficientFree();
+        uint256 locked = lockedOf(account);
+        if (score[account] < locked || score[account] - locked < amount) revert InsufficientFree();
         bonded[account] += amount;
         emit Bonded(account, amount);
+    }
+
+    // ----------------------------------------------------------------- voice
+
+    /// @notice Commit score as a lien backing a rating. The score keeps its
+    ///         weight but can no longer be spent, staked or voiced elsewhere.
+    function voice(address account, uint256 amount) external onlyModule {
+        _settle(account);
+        uint256 locked = lockedOf(account);
+        if (score[account] < locked || score[account] - locked < amount) revert InsufficientFree();
+        voiced[account] += amount;
+        totalVoiced += amount;
+        emit Voiced(account, amount);
+    }
+
+    /// @notice Release a lien (unvote / dilution / stale reap). The score
+    ///         returns to the free pool; it is not minted or burned.
+    function unvoice(address account, uint256 amount) external onlyModule {
+        if (voiced[account] < amount) revert InsufficientVoiced();
+        voiced[account] -= amount;
+        totalVoiced -= amount;
+        emit Unvoiced(account, amount);
+    }
+
+    /// @notice Move part of a voicer's lien to another account as a real
+    ///         transfer of score (the author award). Zero-sum: totalScore is
+    ///         unchanged and the recipient's gain is not capped, because this
+    ///         is earned score changing hands, not new issuance.
+    function transferVoiced(address from, address to, uint256 amount) external onlyModule {
+        if (to == address(0)) revert ZeroAddress();
+        if (voiced[from] < amount) revert InsufficientVoiced();
+        _settle(from);
+        _settle(to);
+        if (score[from] < amount) revert InsufficientVoiced();
+
+        voiced[from] -= amount;
+        totalVoiced -= amount;
+        score[from] -= amount;
+        score[to] += amount;
+        lastActive[to] = block.timestamp;
+
+        emit VoicedTransferred(from, to, amount);
+        emit ScoreChanged(from, -int256(amount), "voice-transfer");
+        emit ScoreChanged(to, int256(amount), "voice-transfer");
+    }
+
+    /// @notice Destroy part of a lien (moderation slash). The score disappears
+    ///         with the rating it backed — this is the one-way cost of fraud.
+    function burnVoiced(address account, uint256 amount, bytes32 reason) external onlyModule {
+        _settle(account);
+        if (voiced[account] < amount || score[account] < amount) revert InsufficientVoiced();
+        voiced[account] -= amount;
+        totalVoiced -= amount;
+        score[account] -= amount;
+        totalScore -= amount;
+        emit VoicedBurned(account, amount, reason);
+        emit ScoreChanged(account, -int256(amount), reason);
     }
 
     function unbond(address account, uint256 amount) external onlyModule {
