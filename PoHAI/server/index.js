@@ -22,6 +22,8 @@ const crypto = require("crypto");
 const multer = require("multer");
 const { verifyMessage } = require("ethers");
 const store = require("./store");
+const ratings = require("./ratings");
+const academy = require("./academy");
 
 const app = express();
 app.use(cors());
@@ -67,6 +69,8 @@ app.get("/api/config", (_req, res) => {
     attestation: deployed?.attestation,
     generalPool: deployed?.generalPool,
     herdCouncil: deployed?.herdCouncil,
+    moderation: deployed?.moderation,
+    academy: deployed?.academy,
   });
 });
 
@@ -342,6 +346,138 @@ app.get("/api/store", (_req, res) => {
     events: Object.keys(db.collections.events || {}).length,
     activity: Object.keys(db.collections.activity || {}),
   });
+});
+
+// ------------------------------------------------------- rating index (P1)
+//
+// Read-only views recomputed from chain logs: breakdowns, trending, ledgers,
+// curators and author earnings. The chain enforces; this only displays.
+
+app.get("/api/ratings/:tokenId", async (req, res) => {
+  try {
+    res.json(await ratings.cowBreakdown(req.params.tokenId));
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+app.get("/api/content/:key", async (req, res) => {
+  try {
+    res.json(await ratings.contentInfo(req.params.key));
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+app.get("/api/trending", async (_req, res) => {
+  try {
+    res.json(await ratings.trending());
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+app.get("/api/ledger/:tokenId", async (req, res) => {
+  try {
+    res.json(await ratings.ledger(req.params.tokenId));
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+app.get("/api/curators/:tokenId", async (req, res) => {
+  try {
+    res.json(await ratings.curators(req.params.tokenId));
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+app.get("/api/authors/:address", async (req, res) => {
+  try {
+    res.json(await ratings.authorInfo(req.params.address));
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+// ------------------------------------------------------- moderation (P3)
+//
+// Hides are reversible visibility flags enforced off executed on-chain
+// proposals. The file stays; the herd stops seeing it — appealable upward.
+
+app.post("/api/moderation/apply", async (req, res) => {
+  try {
+    const out = await ratings.applyModeration(req.body || {});
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+app.get("/api/moderation/:id", async (req, res) => {
+  try {
+    res.json(await ratings.moderationInfo(req.params.id));
+  } catch (err) {
+    res.status(502).json({ error: `rating index unreachable: ${err.message}` });
+  }
+});
+
+// ------------------------------------------------------------- academy
+//
+// Course lessons + quiz grading. Answers never leave the server before a
+// submission; a pass returns an EIP-712 signature the client submits
+// on-chain via Academy.complete().
+
+const CHAIN_IDS = { localhost: 31337, hardhat: 31337, sepolia: 11155111, amoy: 80002 };
+
+app.get("/api/academy/lessons", (_req, res) => {
+  try {
+    res.json(academy.lessonsPublic());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Overall rating-pool indicator: the whole-field health numbers, read live
+// from the pool contract's metrics view. Shared by the main app and simulator.
+app.get("/api/pool", async (_req, res) => {
+  try {
+    res.json(await ratings.poolStats());
+  } catch (err) {
+    res.status(502).json({ error: `pool metrics unreachable: ${err.message}` });
+  }
+});
+
+// Care credit for one cow: live pool balance, credit line, and the one-way
+// Stasis->ETH redemptions the chain has already recorded.
+app.get("/api/care/:tokenId", async (req, res) => {
+  try {
+    res.json(await ratings.careInfo(req.params.tokenId));
+  } catch (err) {
+    res.status(502).json({ error: `care info unreachable: ${err.message}` });
+  }
+});
+
+app.post("/api/academy/submit", async (req, res) => {
+  try {
+    const { address, lessonId, answers } = req.body || {};
+    if (!ADDRESS_RE.test(address || "")) {
+      return res.status(400).json({ passed: false, error: "bad address" });
+    }
+    const deployed = JSON.parse(fs.readFileSync(DEPLOYED, "utf8"));
+    const chainId = CHAIN_IDS[deployed.network] ?? 31337;
+    const out = await academy.gradeAndSign({
+      address,
+      lessonId: Number(lessonId),
+      answers,
+      chainId,
+      academyAddress: deployed.academy,
+    });
+    res.status(out.passed || out.error ? 200 : 400).json(out);
+  } catch (err) {
+    res.status(500).json({ error: `grading failed: ${err.message}` });
+  }
 });
 
 app.listen(PORT, () => {
