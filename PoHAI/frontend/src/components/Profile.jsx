@@ -190,19 +190,16 @@ export default function Profile({ address, contracts, account, rep, cows, notify
               </div>
             </div>
             <div className="stat">
-              <div className="k">Voting power</div>
-              <div className="v">{(stats.votingPower / 100).toFixed(0)}%</div>
-              <div className="muted" style={{ fontSize: 12 }}>refills ~24h</div>
+              <div className="k">Rating spent</div>
+              <div className="v">{stats.voiceLocked ?? 0}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                voiced onto cows · of {stats.score} Stasis
+              </div>
             </div>
             <div className="stat">
-              <div className="k">Momentum</div>
-              <div className="v">{(stats.momentum / 10000).toFixed(2)}×</div>
-              <div className="muted" style={{ fontSize: 12 }}>sustained activity</div>
-            </div>
-            <div className="stat">
-              <div className="k">Voice</div>
-              <div className="v">{stats.voiceLocked ?? 0}/{stats.voiceBudget ?? 0}</div>
-              <div className="muted" style={{ fontSize: 12 }}>locked / budget (zero-sum)</div>
+              <div className="k">Free to spend</div>
+              <div className="v">{Math.max(stats.score - stats.bonded - (stats.voiceLocked ?? 0), 0)}</div>
+              <div className="muted" style={{ fontSize: 12 }}>uncommitted rating</div>
             </div>
             <div className="stat">
               <div className="k">Protection</div>

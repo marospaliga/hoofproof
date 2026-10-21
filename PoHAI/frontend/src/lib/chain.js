@@ -90,10 +90,8 @@ export function friendlyError(err) {
     InsufficientFree: "You don't have enough free Stasis for that. Score is earned by steady activity; this demo seeds it to the demo accounts listed when the node starts.",
     InsufficientBonded: "You don't have that much Stasis locked as collateral.",
     ConcentrationCap: "One account may hold at most 20% of a cow's backing — this cow needs more, different raters.",
-    CooldownActive: "Your voting power is spent. It refills continuously — come back in a few hours.",
-    NoVotingPower: "Your voting power is spent — every thumbs-up uses 20% of it. It refills continuously over the next day.",
-    InvalidBoost: "A thumbs-up must use between 1% and 10% of your score.",
-    WeightTooLow: "Your score is too low to add any weight right now.",
+    InvalidBoost: "That vote target isn't valid (votes may rate a cow, a photo or a post).",
+    WeightTooLow: "Spend at least a little rating — a vote of zero adds nothing.",
     PeriodNotElapsed: "The funding need can only be re-recorded once per 30-day period.",
     IsMemorial: "Memorial cows are frozen — no actions can be taken on them.",
     ZeroAmount: "The amount must be greater than zero.",
@@ -104,8 +102,7 @@ export function friendlyError(err) {
     AuthorMismatch: "That vote names the wrong author for this post. Check who anchored it first.",
     UnknownContent: "This post isn't anchored on-chain yet — register it first, then vote.",
     DormantContent: "This thread went dormant (no activity inside the window). A heartbeat reactivates it.",
-    VoiceBudgetExceeded: "Your voice is fully locked elsewhere. Unvote something or let dilution free it.",
-    NothingLocked: "You have no voice locked on that yet.",
+    NothingLocked: "You have no rating committed there yet.",
     TierMismatch: "Top-ups must keep the original conviction tier. Unstake first to switch tiers.",
     BadTier: "Unknown conviction tier (0 flexible, 1 = 90d, 2 = 180d).",
     TooManyKeys: "Reap at most 20 locks per transaction.",
@@ -122,7 +119,7 @@ export function friendlyError(err) {
     WindowClosed: "The challenge window has closed — execute or accept the outcome.",
     QuorumNotMet: "A contested case needs a majority plus distinct raters before it can execute.",
     AlreadyClaimed: "You can only claim the gas rebate once per period.",
-    NoMomentum: "The gas rebate goes to raters with sustained momentum — your 1x is not enough yet. Stay active and claim again later.",
+    NoProtection: "The gas rebate goes to protectors — you need some protection activity first (care work, solving, or curating protection-linked content).",
     EmptyPool: "The GeneralPool treasury is empty for that action.",
     NotAMember: "Only members of that herd (cow owners in it) may do this.",
     NotAResident: "Reputation weight is calculated from cows you own in that herd.",
@@ -217,15 +214,12 @@ export async function enrichCow(record, contracts) {
 
 export async function myReputation(contracts, account) {
   const { stasis, cowRating } = contracts;
-  const [score, bonded, voiced, free, votingPower, momentum, locked, budget, protection] = await Promise.all([
+  const [score, bonded, voiced, free, locked, protection] = await Promise.all([
     stasis.effectiveScore(account),
     stasis.bonded(account),
     stasis.voiced(account),
     stasis.freeScore(account),
-    cowRating.votingPowerOf(account),
-    cowRating.momentumBps(account),
     cowRating.voiceLocked(account),
-    cowRating.voiceBudget(account),
     cowRating.protectionActivity(account),
   ]);
   return {
@@ -233,55 +227,43 @@ export async function myReputation(contracts, account) {
     bonded: Number(bonded),
     voiced: Number(voiced),
     free: Number(free),
-    votingPower: Number(votingPower),
-    momentum: Number(momentum),
     voiceLocked: Number(locked),
-    voiceBudget: Number(budget),
     protection: Number(protection),
   };
 }
 
-// Preview a content/cow vote without sending: the credited rating (kind-weighted),
-// the damped author award, voice use and whether it dilutes priors. All view
-// calls — no gas. The curve is flat unless the owner has switched it on.
-export async function previewVote(contracts, account, kind, bps) {
+// Preview a vote without sending: a voice is simply rating committed, so the
+// amount *is* the weight. We report how much free rating is left and what the
+// damped author award would be. All view calls — no gas.
+export async function previewVote(contracts, account, kind, amount) {
   const { stasis, cowRating } = contracts;
-  const [score, momentum, locked, budget, total, dBps, eBps, cBps] = await Promise.all([
-    stasis.effectiveScore(account),
-    cowRating.momentumBps(account),
+  const [free, locked, total] = await Promise.all([
+    stasis.freeScore(account),
     cowRating.voiceLocked(account),
-    cowRating.voiceBudget(account),
     cowRating.totalRatingPoints(),
-    cowRating.discussionBps().catch(() => 4000n),
-    cowRating.evidenceBps().catch(() => 10000n),
-    cowRating.cowVoteBps().catch(() => 10000n),
   ]);
-  const raw = Math.floor((Number(score) * bps * Number(momentum)) / 1e8);
-  // kind: 1 = evidence (full), 2 = discussion (softened), else cow boost (full).
-  const kindBps = kind === 2 ? Number(dBps) : kind === 1 ? Number(eBps) : Number(cBps);
-  const weight = Math.floor((raw * kindBps) / 10000);
+  const weight = Number(amount);
   const totalN = Number(total);
   const award = totalN > 0 && weight > 0
     ? Math.floor((weight * 1000 * totalN) / (10000 * (totalN + weight)))
     : 0;
   return {
     weight,
-    rawWeight: raw,
+    rawWeight: weight,
     authorAward: award,
     locked: Number(locked),
-    budget: Number(budget),
-    dilutes: Number(locked) + weight > Number(budget),
-    overBudget: Number(locked) > Number(budget),
+    free: Number(free),
+    affordable: weight <= Number(free),
+    overBudget: weight > Number(free),
   };
 }
 
 export async function voiceLocks(contracts, account) {
-  const [keys, amounts, locked, budget] = await contracts.cowRating.voterLocks(account);
+  const [keys, amounts, locked] = await contracts.cowRating.voterLocks(account);
   return {
     keys: [...keys],
     amounts: amounts.map(Number),
     locked: Number(locked),
-    budget: Number(budget),
   };
 }
 

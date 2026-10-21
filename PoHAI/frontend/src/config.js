@@ -16,10 +16,10 @@ export const API_BASE = "/api";
 
 export const STATUS_NAMES = ["Inert", "Active", "SelfSustaining", "Memorial"];
 export const STATUS_COLORS = {
-  Inert: "#8a8f98",
-  Active: "#3ecf8e",
-  SelfSustaining: "#4aa8ff",
-  Memorial: "#e05561",
+  Inert: "#6f6857",          // weathered grey-brown
+  Active: "#456d33",         // deep grass green
+  SelfSustaining: "#846414", // harvest gold
+  Memorial: "#a8322b",       // barn red
 };
 
 export const GENESIS_LIFE = 365 * 24 * 60 * 60; // seconds

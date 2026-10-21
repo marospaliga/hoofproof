@@ -1,13 +1,15 @@
+/* Farm palette — parchment, grass green, soil brown, barn red.
+   Keep red reserved for destructive states (death, slash, error). */
 :root {
-  --bg: #0e1116;
-  --panel: #161b22;
-  --panel-2: #1c232d;
-  --border: #2b333f;
-  --text: #e6e9ee;
-  --muted: #9aa4b2;
-  --accent: #3ecf8e;
-  --accent-2: #4aa8ff;
-  --danger: #e05561;
+  --bg: #f4efe2;        /* dry pasture parchment */
+  --panel: #fffdf6;     /* canvas */
+  --panel-2: #f0e9d8;   /* warm sand */
+  --border: #dcd2ba;    /* dry soil */
+  --text: #2f2a20;      /* dark loam */
+  --muted: #7c7260;     /* weathered wood */
+  --accent: #4f7d3a;    /* grass green */
+  --accent-2: #8a5a2b;  /* soil brown */
+  --danger: #a8322b;    /* barn red */
 }
 
 * { box-sizing: border-box; }
@@ -30,7 +32,7 @@ a { color: var(--accent-2); text-decoration: none; }
   align-items: center;
   gap: 12px;
   padding: 12px 24px;
-  background: rgba(14, 17, 22, 0.92);
+  background: rgba(244, 239, 226, 0.92);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--border);
 }
@@ -56,7 +58,7 @@ button {
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #05120b; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fffdf6; font-weight: 600; }
 button.primary:hover { filter: brightness(1.08); }
 button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 
@@ -169,7 +171,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px
   border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 12px 16px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 30px rgba(60, 45, 20, 0.18);
   z-index: 20;
 }
 .notice.error { border-color: var(--danger); }
@@ -178,7 +180,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(47, 42, 32, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -201,10 +203,10 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px
 .mt4 { margin-top: 4px; }
 .loading { padding: 60px; text-align: center; color: var(--muted); }
 
-.status-Inert { background: #3a414c; color: #dfe4ec; }
-.status-Active { background: #123525; color: var(--accent); }
-.status-SelfSustaining { background: #10233c; color: var(--accent-2); }
-.status-Memorial { background: #3c1216; color: var(--danger); }
+.status-Inert { background: #e6dfcd; color: #5c5545; }
+.status-Active { background: #e3efdb; color: #3d6430; }
+.status-SelfSustaining { background: #f7ecd4; color: var(--accent-2); }
+.status-Memorial { background: #f3dedb; color: var(--danger); }
 
 /* ---- Phase C: evidence gallery, meters, profile ------------------------ */
 
@@ -311,10 +313,97 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px
   background: none; border: none; color: var(--accent-2);
   cursor: pointer; padding: 0; font-size: 14px; text-decoration: underline;
 }
+.rail-act .zero-start { margin: 10px 0 0; font-size: 13px; padding: 9px 11px; }
+
+/* ------------------------------------------------- cow rail: act/watch */
+.zone-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.rail-act {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.rate-head { display: flex; align-items: baseline; gap: 10px; }
+.rate-diamonds { font-size: 21px; letter-spacing: 2px; line-height: 1; }
+.rate-diamonds .dia { color: var(--border); }
+.rate-diamonds .dia.on { color: var(--accent); }
+.rate-num { font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+
+/* compact variant used on herd cards */
+.rating-line { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.rating-line .rate-diamonds { font-size: 15px; letter-spacing: 1px; }
+.rating-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.voice-chips, .watch-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.preview-line {
+  margin-top: 10px;
+  padding: 7px 9px;
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.preview-line .tick { color: var(--accent); margin-right: 3px; }
+.preview-line .warn-flag {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: var(--accent-2);
+}
+
+/* ------------------------------------------- do-more accordion (one open) */
+.more {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.more-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.more-head:hover { background: var(--panel-2); }
+.more.open .more-head { background: var(--panel-2); }
+.more-caret { color: var(--muted); font-size: 16px; line-height: 1; font-weight: 400; }
+.more-body { padding: 4px 12px 13px; }
+.more-body > .panel.inset { background: none; border: 0; padding: 0; }
 
 /* ------------------------------------------------------------- course */
 .course-progress { margin: 14px 0; font-size: 14px; }
-.course-progress .badge { margin-left: 8px; background: var(--accent); color: #05120b; }
+.course-progress .badge { margin-left: 8px; background: var(--accent); color: #fffdf6; }
 .course-bar {
   height: 8px; background: var(--panel-2);
   border-radius: 999px; margin-top: 8px; overflow: hidden;

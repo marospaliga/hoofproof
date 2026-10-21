@@ -24,7 +24,7 @@ export default function App() {
   const [config, setConfig] = useState(DEFAULT_CONTRACTS);
   const [wallet, setWallet] = useState(null);
   const [contracts, setContracts] = useState(null);
-  const [rep, setRep] = useState({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, voiceLocked: 0, voiceBudget: 0, protection: 0 });
+  const [rep, setRep] = useState({ score: 0, bonded: 0, voiceLocked: 0, protection: 0 });
   const [cows, setCows] = useState([]);
   const [selectedCid, setSelectedCid] = useState(null);
   const [view, setView] = useState("herd"); // "herd" | "docs" | "events" | "profile" | "trending" | "course"
@@ -148,7 +148,7 @@ export default function App() {
   function onDisconnect() {
     setWallet(null);
     setContracts(null);
-    setRep({ score: 0, bonded: 0, votingPower: 10000, momentum: 10000, voiceLocked: 0, voiceBudget: 0, protection: 0 });
+    setRep({ score: 0, bonded: 0, voiceLocked: 0, protection: 0 });
     refresh();
   }
 

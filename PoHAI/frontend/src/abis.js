@@ -1837,11 +1837,6 @@ export default {
     },
     {
       "inputs": [],
-      "name": "NoVotingPower",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "NotHidden",
       "type": "error"
     },
@@ -1920,11 +1915,6 @@ export default {
     {
       "inputs": [],
       "name": "UnknownContent",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "VoiceBudgetExceeded",
       "type": "error"
     },
     {
@@ -2290,31 +2280,6 @@ export default {
         {
           "indexed": true,
           "internalType": "address",
-          "name": "voter",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "freedWeight",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "remainingLocked",
-          "type": "uint256"
-        }
-      ],
-      "name": "LocksDiluted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
           "name": "moderation",
           "type": "address"
         },
@@ -2364,43 +2329,6 @@ export default {
         }
       ],
       "name": "ParameterSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "discussionBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "evidenceBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "cowVoteBps",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "curveMode",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "curveReference",
-          "type": "uint256"
-        }
-      ],
-      "name": "RatingPolicySet",
       "type": "event"
     },
     {
@@ -2560,12 +2488,6 @@ export default {
           "internalType": "bytes32",
           "name": "cidHash",
           "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "bps",
-          "type": "uint256"
         },
         {
           "indexed": false,
@@ -2768,6 +2690,19 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "authorAwardCapBps",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "uint256",
@@ -2826,7 +2761,7 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "bps",
+          "name": "amount",
           "type": "uint256"
         }
       ],
@@ -3203,46 +3138,7 @@ export default {
     },
     {
       "inputs": [],
-      "name": "cowVoteBps",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "creditBps",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "curveMode",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "curveReference",
       "outputs": [
         {
           "internalType": "uint256",
@@ -3268,38 +3164,12 @@ export default {
     },
     {
       "inputs": [],
-      "name": "discussionBps",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "earlyUnlockPenaltyBps",
       "outputs": [
         {
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "evidenceBps",
-      "outputs": [
-        {
-          "internalType": "uint16",
-          "name": "",
-          "type": "uint16"
         }
       ],
       "stateMutability": "view",
@@ -3594,19 +3464,6 @@ export default {
     },
     {
       "inputs": [],
-      "name": "maxBoostBps",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "maxBuyerDiscountBps",
       "outputs": [
         {
@@ -3659,7 +3516,7 @@ export default {
     },
     {
       "inputs": [],
-      "name": "maxVoiceBps",
+      "name": "minTransferCost",
       "outputs": [
         {
           "internalType": "uint256",
@@ -3672,7 +3529,7 @@ export default {
     },
     {
       "inputs": [],
-      "name": "minTransferCost",
+      "name": "minVoice",
       "outputs": [
         {
           "internalType": "uint256",
@@ -3710,53 +3567,8 @@ export default {
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "momentumBps",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "momentumDecay",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "momentumMaxBps",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "momentumMinBps",
       "outputs": [
         {
           "internalType": "uint256",
@@ -4151,27 +3963,27 @@ export default {
       "inputs": [
         {
           "internalType": "uint16",
-          "name": "discussion",
+          "name": "",
           "type": "uint16"
         },
         {
           "internalType": "uint16",
-          "name": "evidence",
+          "name": "",
           "type": "uint16"
         },
         {
           "internalType": "uint16",
-          "name": "cowVote",
+          "name": "",
           "type": "uint16"
         },
         {
           "internalType": "uint8",
-          "name": "mode",
+          "name": "",
           "type": "uint8"
         },
         {
           "internalType": "uint256",
-          "name": "curveRef",
+          "name": "",
           "type": "uint256"
         },
         {
@@ -4333,11 +4145,6 @@ export default {
         {
           "internalType": "uint256",
           "name": "since",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "weightBps",
           "type": "uint256"
         },
         {
@@ -4695,25 +4502,6 @@ export default {
       "inputs": [
         {
           "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "voiceBudget",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
           "name": "",
           "type": "address"
         }
@@ -4748,7 +4536,7 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "bps",
+          "name": "amount",
           "type": "uint256"
         },
         {
@@ -4781,63 +4569,13 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "bps",
+          "name": "amount",
           "type": "uint256"
         }
       ],
       "name": "vote",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "voteCostBps",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "votePower",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "power",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "updatedAt",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "voteRecovery",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -4868,25 +4606,6 @@ export default {
         {
           "internalType": "uint256",
           "name": "budget",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "votingPowerOf",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
           "type": "uint256"
         }
       ],
@@ -5751,11 +5470,6 @@ export default {
     {
       "inputs": [],
       "name": "NoAnchor",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "NoMomentum",
       "type": "error"
     },
     {

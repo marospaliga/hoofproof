@@ -1,5 +1,6 @@
 import { fmtDate } from "../config.js";
 import Name from "./Name.jsx";
+import { RatingDiamonds } from "./Rating.jsx";
 
 function CowCard({ cow, onOpen }) {
   const status = `status-${cow.statusName}`;
@@ -15,11 +16,9 @@ function CowCard({ cow, onOpen }) {
       <div className="inline mt12" style={{ gap: 6 }}>
         <span className={`badge ${status}`}>{cow.statusName}</span>
       </div>
-      <div className="row mt12" style={{ alignItems: "center" }}>
-        <div className="stat" style={{ margin: 0 }}>
-          <div className="k">Rating</div>
-          <div className="v">{cow.rating}</div>
-        </div>
+      <div className="rating-line" title="Rating — earned, never bought">
+        <RatingDiamonds rating={cow.rating} />
+        <span className="rating-value">{cow.rating}</span>
       </div>
     </div>
   );

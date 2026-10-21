@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fmtDate, shortAddr } from "../config.js";
 import { api } from "../lib/api.js";
 import Name from "./Name.jsx";
+import { RatingDiamonds } from "./Rating.jsx";
 import {
   stake,
   unstake,
@@ -37,7 +38,7 @@ export function fmtEth(wei) {
 
 // The council of this cow's herd, listed on-chain. Only herd members (cow
 // owners) may propose and vote — weight = rating of the member's cows in the
-// herd × their momentum.
+// herd.
 function CouncilPanel({ tokenId, herdId, contracts, account, notify }) {
   const [proposals, setProposals] = useState(null);
   const [draft, setDraft] = useState("");
@@ -88,7 +89,7 @@ function CouncilPanel({ tokenId, herdId, contracts, account, notify }) {
     setBusy("vote" + id);
     try {
       await councilVote(contracts, id, support);
-      notify("Vote cast (weight = your cows' rating × momentum).");
+      notify("Vote cast (weight = your cows' rating in the herd).");
       reload();
     } catch (err) {
       notify(friendlyError(err), "error");
@@ -171,8 +172,8 @@ function CouncilPanel({ tokenId, herdId, contracts, account, notify }) {
       ))}
 
       <div className="muted mt12" style={{ fontSize: 12 }}>
-        Voting weight = the rating of each cow <i>you own</i> in this herd × your
-        momentum. Money never votes; reputation does.
+        Voting weight = the rating of each cow <i>you own</i> in this herd. Money
+        never votes; reputation does.
       </div>
     </div>
   );
@@ -299,7 +300,7 @@ function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
         .then((r) => setRating(Number(r)))
         .catch(() => setRating(0));
       if (account) {
-        previewVote(contracts, account, 2, 1000)
+        previewVote(contracts, account, 2, 100)
           .then(setPreview)
           .catch(() => setPreview(null));
       }
@@ -317,12 +318,12 @@ function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
     if (!account) return notify("Connect a wallet to rate posts.", "error");
     setBusy(true);
     try {
-      await voteContent(contracts, tokenId, 2, hash, 1000, author);
-      setRating((rating || 0) + 1);
+      await voteContent(contracts, tokenId, 2, hash, 100, author);
+      setRating((rating || 0) + 100);
       notify(
         preview
-          ? `Post rated +${preview.weight} to the cow${preview.authorAward ? `, +${preview.authorAward} to the author` : ""}${preview.dilutes ? " (dilutes your oldest locks — voice is zero-sum)" : ""}.`
-          : "Post rated — the weight adds to the cow's authenticity."
+          ? `Post rated +${preview.weight} to the cow${preview.authorAward ? `, +${preview.authorAward} to the author` : ""}.`
+          : "Post rated — the rating adds to the cow's authenticity."
       );
       refresh();
     } catch (err) {
@@ -341,8 +342,8 @@ function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
           onClick={thumb}
           title={
             preview
-              ? `Voice budget ${preview.locked}/${preview.budget}; this vote locks ${preview.weight}${earned ? ` · by trusted documenter (+${earned})` : ""}`
-              : "Thumbs-up this post: the verified weight (rating × momentum) is added to the cow."
+              ? `Spends ${preview.weight} rating (${preview.locked} already committed of your score)${earned ? ` · by trusted documenter (+${earned})` : ""}`
+              : "Rate this post: the rating you spend is added to the cow."
           }
         >
           👍 {rating ?? "…"}
@@ -386,7 +387,7 @@ function EvidenceThumb({ tokenId, ev, contracts, account, notify, refresh }) {
         .then((r) => setRating(Number(r)))
         .catch(() => setRating(0));
       if (account) {
-        previewVote(contracts, account, 1, 1000)
+        previewVote(contracts, account, 1, 100)
           .then(setPreview)
           .catch(() => setPreview(null));
       }
@@ -401,11 +402,11 @@ function EvidenceThumb({ tokenId, ev, contracts, account, notify, refresh }) {
     if (!account) return notify("Connect a wallet to rate evidence.", "error");
     setBusy(true);
     try {
-      await voteContent(contracts, tokenId, 1, hash, 1000, ev.uploader || null);
-      setRating((rating || 0) + 1);
+      await voteContent(contracts, tokenId, 1, hash, 100, ev.uploader || null);
+      setRating((rating || 0) + 100);
       notify(
         preview
-          ? `Evidence rated +${preview.weight} authenticity${preview.authorAward ? `, +${preview.authorAward} to the documenter` : ""}${preview.dilutes ? " (dilutes your oldest locks)" : ""}.`
+          ? `Evidence rated +${preview.weight} authenticity${preview.authorAward ? `, +${preview.authorAward} to the documenter` : ""}.`
           : "Evidence rated — authenticity feeds the cow's rating."
       );
       await api.logActivity(account, "evidence-thumb", "Rated an evidence file");
@@ -426,8 +427,8 @@ function EvidenceThumb({ tokenId, ev, contracts, account, notify, refresh }) {
           onClick={thumb}
           title={
             preview
-              ? `Voice budget ${preview.locked}/${preview.budget}; this vote locks ${preview.weight}${earned ? ` · by trusted documenter (+${earned})` : ""}`
-              : "Thumbs-up this evidence file: the verified weight is added to the cow."
+              ? `Spends ${preview.weight} rating (${preview.locked} already committed of your score)${earned ? ` · by trusted documenter (+${earned})` : ""}`
+              : "Rate this evidence file: the rating you spend is added to the cow."
           }
         >
           👍 {rating ?? "…"}
@@ -595,8 +596,8 @@ function Threads({ cow, contracts, account, refresh, notify }) {
   );
 }
 
-// Voice budget meter: the field is zero-sum, so every vote locks voice and
-// over-budget votes dilute the oldest locks first. Unvote to free budget.
+// Voice meter: a voice is rating committed, so what is locked is simply the
+// rating you have spent. Unvote to hand it straight back.
 function VoiceMeter({ contracts, account, rep, notify }) {
   const [locks, setLocks] = useState(null);
   const [busy, setBusy] = useState("");
@@ -613,9 +614,9 @@ function VoiceMeter({ contracts, account, rep, notify }) {
   if (locks === null && contracts && account) reload();
 
   const locked = rep.voiceLocked ?? locks?.locked ?? 0;
-  const budget = rep.voiceBudget ?? locks?.budget ?? 0;
-  const pct = budget > 0 ? Math.min(100, Math.round((locked / budget) * 100)) : 0;
-  const over = budget > 0 && locked > budget;
+  const score = rep.score ?? 0;
+  const pct = score > 0 ? Math.min(100, Math.round((locked / score) * 100)) : 0;
+  const over = score > 0 && locked > score;
 
   async function unvoteKey(key) {
     setBusy(key);
@@ -635,8 +636,8 @@ function VoiceMeter({ contracts, account, rep, notify }) {
     <div className="mt12 panel inset">
       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
         <span className="muted" style={{ fontSize: 12 }}>
-          🗣️ Voice {locked}/{budget} locked
-          {over ? " — over budget: your next vote dilutes oldest locks first" : ""}
+          🗣️ {locked} of {score} rating committed as voice
+          {over ? " — more committed than you hold (a lien travels with the rating)" : ""}
         </span>
         <button className="thumb" onClick={reload} title="Refresh voice locks">↻</button>
       </div>
@@ -742,8 +743,8 @@ function RatingPanels({ cow }) {
                 </div>
               )}
               <div className="muted mt12" style={{ fontSize: 12 }}>
-                Logged vote weight can exceed the live rating: the difference is dilution — voice
-                returned to the field when curators moved on.
+                Logged vote weight counts every vote ever cast here; the live rating is lower
+                wherever points have since been unvoted or transferred to a documenter.
               </div>
             </>
           )}
@@ -832,11 +833,8 @@ function CarePanel({ tokenId, contracts, account, notify }) {
   const overPool = info ? ethOut * 1e18 > Number(info.poolWei) : false;
 
   return (
-    <details className="mt12 panel inset" open={info && Number(info.poolWei) > 0 ? true : undefined}>
-      <summary style={{ cursor: "pointer", fontSize: 13 }}>
-        🩺 Care credit {info && Number(info.poolWei) > 0 ? `(${fmtEth(info.poolWei)} pool)` : ""}
-      </summary>
-      {info && (
+    <>
+      {info ? (
         <>
           <div className="muted mt4" style={{ fontSize: 12 }}>
             Rate <b>{Number(info.rateWei) / 1e15}</b> ETH per Stasis · credit line (this cow's rating){" "}
@@ -902,19 +900,47 @@ function CarePanel({ tokenId, contracts, account, notify }) {
             </div>
           </div>
         </>
+      ) : (
+        <div className="muted" style={{ fontSize: 12 }}>Loading care pool…</div>
       )}
-    </details>
+    </>
+  );
+}
+
+// One row of the "Do more" accordion. Only ever one row is open, so the rail
+// never turns into a stack of competing panels.
+function More({ id, label, openId, setOpenId, children }) {
+  const open = openId === id;
+  return (
+    <div className={`more${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="more-head"
+        aria-expanded={open}
+        onClick={() => setOpenId(open ? null : id)}
+      >
+        <span>{label}</span>
+        <span className="more-caret" aria-hidden="true">
+          {open ? "−" : "+"}
+        </span>
+      </button>
+      {open && <div className="more-body">{children}</div>}
+    </div>
   );
 }
 
 export default function CowDetail({ cow, contracts, account, rep, onBack, refresh, notify }) {
   const [amount, setAmount] = useState("");
-  const [bps, setBps] = useState(1000);
+  const [voteAmount, setVoteAmount] = useState(100);
   const [tier, setTier] = useState(0);
   const [hours, setHours] = useState("");
   const [toAddr, setToAddr] = useState("");
   const [busy, setBusy] = useState("");
   const [evidenceNote, setEvidenceNote] = useState("");
+  // "Do more" accordion: exactly one section open. undefined = fall back to
+  // whichever section matches the visitor's role.
+  const [openId, setOpenId] = useState(undefined);
+  const [votePreview, setVotePreview] = useState(null);
   const fileRef = useRef(null);
 
   const tokenId = cow.tokenId;
@@ -954,6 +980,30 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   const isBacker = (myStake ?? 0) > 0;
   const isOracle = isOwner || isBacker || (rep.protection ?? 0) > 0;
 
+  // Live consequence of the pending 👍 — credited rating and voice cost.
+  // All view calls, so it costs nothing and never touches the network state.
+  useEffect(() => {
+    let alive = true;
+    if (!contracts || !account || !rep.score) {
+      setVotePreview(null);
+      return;
+    }
+    previewVote(contracts, account, 3, voteAmount)
+      .then((p) => {
+        if (alive) setVotePreview(p);
+      })
+      .catch(() => {
+        if (alive) setVotePreview(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [contracts, account, voteAmount, rep.score]);
+
+  // Default the accordion open on the section this visitor can actually use —
+  // but keep everything collapsed for plain visitors so the rail stays quiet.
+  const moreId = openId === undefined ? (isBacker ? "back" : null) : openId;
+
   async function run(label, fn) {
     setBusy(label);
     try {
@@ -983,7 +1033,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
       form.append("signature", signature);
       form.append("note", evidenceNote);
       await api.uploadEvidence(cow.cid, form);
-      // Anchor authorship on-chain as protection-linked: later thumbs-ups
+      // Anchor authorship on-chain as protection-linked: later ratings
       // attribute the documenter and can mint the damped author award.
       try {
         await registerContent(contracts, cow.tokenId, 1, contentHash("evidence:" + hash), true);
@@ -1021,79 +1071,99 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
           </div>
 
           <div>
-            <div className="stats">
-              <div className="stat">
-                <div className="k">Rating</div>
-                <div className="v">{cow.rating}</div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  earned, never bought
+            {/* ── ACT ─ what this visitor does, and what it costs ── */}
+            <div className="rail-act">
+              <div className="zone-label">Rate this cow</div>
+
+              <div className="rate-head">
+                <RatingDiamonds
+                  rating={cow.rating}
+                  title="Rating — voiced Stasis, earned never bought"
+                />
+                <span className="rate-num">{cow.rating}</span>
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: -2 }}>
+                rating · earned, never bought
+              </div>
+
+              <div className="voice-chips">
+                <span className="chip">
+                  Stasis <b>{rep.score}</b>
+                  <span className="muted"> free {rep.free ?? Math.max(rep.score - rep.bonded, 0)}</span>
+                </span>
+                <span className="chip">
+                  spent <b>{rep.voiceLocked ?? 0}</b> rating
+                </span>
+              </div>
+
+              <div className="actions">
+                <select
+                  value={voteAmount}
+                  onChange={(e) => setVoteAmount(Number(e.target.value))}
+                  style={{ width: "auto" }}
+                  title="How much rating to spend backing this cow"
+                >
+                  <option value={10}>10 rating</option>
+                  <option value={100}>100 rating</option>
+                  <option value={500}>500 rating</option>
+                </select>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => run("Thumbs up", () => boost(contracts, tokenId, voteAmount))}
+                >
+                  {busy === "Thumbs up" ? "…" : "👍 Rate"}
+                </button>
+              </div>
+
+              <div className="preview-line">
+                {votePreview ? (
+                  <>
+                    <span className="tick" aria-hidden="true">▲</span>
+                    adds <b>+{votePreview.weight}</b> to {cow.name}
+                    <span className="muted">
+                      {" "}· spends your rating, {votePreview.free} left free
+                    </span>
+                    {votePreview.overBudget && <span className="warn-flag"> not enough free rating</span>}
+                  </>
+                ) : (
+                  <span className="muted">
+                    {contracts && account ? "no Stasis to preview yet" : "connect a wallet to preview"}
+                  </span>
+                )}
+              </div>
+
+              {rep.score === 0 && (
+                <div className="zero-start">
+                  <b>No Stasis yet</b> — votes are declined by the contract. This demo is
+                  zero-start: take the cow-care course in <b>Academy</b> to earn 700, or switch
+                  MetaMask to hardhat accounts <b>#1–#6</b>.
                 </div>
+              )}
+            </div>
+
+            {/* ── WATCH ─ read-only: what the cow itself needs ──── */}
+            <div className="rail-watch" aria-label="Cow at a glance">
+              <div className="zone-label">At a glance</div>
+              <div className="watch-chips">
+                <span className="chip">
+                  backing <b>{cow.backing}</b>
+                </span>
+                <span className="chip">
+                  care pool <b>{fmtEth(cow.carePool)}</b>
+                </span>
+                <span className="chip">
+                  funding need <b>{cow.fundingNeed}</b>
+                </span>
               </div>
             </div>
 
-            <div className="stats">
-              <div className="stat">
-                <div className="k">Your Stasis</div>
-                <div className="v">{rep.score}</div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  free {Math.max(rep.score - rep.bonded, 0)} · bonded {rep.bonded}
-                </div>
-              </div>
-              <div className="stat">
-                <div className="k">Voting power</div>
-                <div className="v">{contracts ? (rep.votingPower / 100).toFixed(0) + "%" : "—"}</div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  refills ~24h
-                </div>
-              </div>
-              <div className="stat">
-                <div className="k">Momentum</div>
-                <div className="v">{contracts ? (rep.momentum / 10000).toFixed(2) + "×" : "—"}</div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  weighs your votes
-                </div>
-              </div>
-
-            </div>
-
-            <div className="actions">
-              <select value={bps} onChange={(e) => setBps(Number(e.target.value))} style={{ width: "auto" }} title="How much of your voice this thumbs-up carries">
-                <option value={100}>vote 1%</option>
-                <option value={500}>vote 5%</option>
-                <option value={1000}>vote 10%</option>
-              </select>
-              <button
-                className="primary"
-                disabled={busy}
-                onClick={() => run("Thumbs up", () => boost(contracts, tokenId, bps))}
-              >
-                {busy === "Thumbs up" ? "…" : "👍 Thumbs up"}
-              </button>
-            </div>
-
-            <div className="muted mt12" style={{ fontSize: 12 }}>
-              One vote, weighted by <b>(score × share) × momentum</b>. Every 👍 spends
-              20% of voting power (refills over ~24h) and locks voice from your fixed
-              budget — the field is zero-sum.
-            </div>
-
-            {rep.score === 0 && (
-              <div
-                className="muted mt12"
-                style={{ fontSize: 13, border: "1px dashed var(--border)", padding: 8, borderRadius: 8 }}
-              >
-                Your wallet has no Stasis yet, so votes will be declined by the
-                contract. This demo is zero-start: the six demo raters{" "}
-                <b>earned 700 Stasis each</b> by completing the cow-care course.
-                Complete it yourself in <b>Academy</b>, or switch MetaMask to
-                hardhat accounts <b>#1 to #6</b> (printed when the node starts).
-              </div>
-            )}
-
-            <details className="mt12 panel inset" open={isBacker || undefined}>
-              <summary style={{ cursor: "pointer", fontSize: 13 }}>
-                💪 Back this cow {myStake ? `(you: ${myStake})` : ""}
-              </summary>
+            <More
+              id="back"
+              label={<>💪 Back this cow {myStake ? `(you: ${myStake})` : ""}</>}
+              openId={moreId}
+              setOpenId={setOpenId}
+            >
               <div className="muted mt4" style={{ fontSize: 12 }}>
                 Commit rating behind this cow. Backing {cow.backing}
                 {capInfo ? ` · you can hold at most ${capInfo.cap} (one account caps at 20%)` : ""} ·
@@ -1134,12 +1204,14 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                 </div>
               ) : null}
               <VoiceMeter contracts={contracts} account={account} rep={rep} notify={notify} />
-            </details>
+            </More>
 
-            <details className="mt12 panel inset" open={isOracle || undefined}>
-              <summary style={{ cursor: "pointer", fontSize: 13 }}>
-                🔏 Oracle actions {isOracle ? "" : "(recognized contributors)"}
-              </summary>
+            <More
+              id="oracle"
+              label={<>🔏 Oracle actions {isOracle ? "" : "(recognized contributors)"}</>}
+              openId={moreId}
+              setOpenId={setOpenId}
+            >
               {!isOracle ? (
                 <div className="muted mt4" style={{ fontSize: 12 }}>
                   Bonded claims move real state. They unlock once you've backed this
@@ -1205,11 +1277,11 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                   </form>
                 </>
               )}
-            </details>
+            </More>
 
             {isOwner && (
-              <div className="mt12">
-                <label htmlFor="to">Transfer to (must own rating)</label>
+              <More id="transfer" label="🔁 Transfer this cow" openId={moreId} setOpenId={setOpenId}>
+                <label htmlFor="to">Recipient must hold rating — money alone cannot move it</label>
                 <div className="row">
                   <input
                     id="to"
@@ -1224,29 +1296,18 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                     {busy === "Transfer" ? "…" : "Transfer"}
                   </button>
                 </div>
-                <div className="muted mt4" style={{ fontSize: 12 }}>
-                  You own this cow. Transfers spend the buyer's rating — money alone cannot move it.
-                </div>
-              </div>
+              </More>
             )}
 
-            <CarePanel tokenId={tokenId} contracts={contracts} account={account} notify={notify} />
-
-            <details className="mt12 panel inset">
-              <summary style={{ cursor: "pointer", fontSize: 13 }}>📊 Details: backing, breakdown, money trail</summary>
-              <div className="mt12">
-                <RatingPanels cow={cow} />
-              </div>
-            </details>
+            <More id="care" label="🩺 Care credit" openId={moreId} setOpenId={setOpenId}>
+              <CarePanel tokenId={tokenId} contracts={contracts} account={account} notify={notify} />
+            </More>
 
             {(cow.evidence || []).length > 0 && (
-              <EvidenceGallery cow={cow} tokenId={tokenId} contracts={contracts} account={account} notify={notify} refresh={refresh} />
+              <More id="evidence" label="🏷️ Evidence" openId={moreId} setOpenId={setOpenId}>
+                <EvidenceGallery cow={cow} tokenId={tokenId} contracts={contracts} account={account} notify={notify} refresh={refresh} />
+              </More>
             )}
-
-            <div className="muted mt12" style={{ fontSize: 12 }}>
-              Funding records accept one update per 30-day period. Reporting a
-              lower need credits the solver with 10% of the reduction.
-            </div>
           </div>
         </div>
       </div>
@@ -1262,6 +1323,10 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
       )}
 
       <RatingPanels cow={cow} />
+      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+        Funding records accept one update per 30-day period. Reporting a lower need
+        credits the solver with 10% of the reduction.
+      </div>
 
       <Threads cow={cow} contracts={contracts} account={account} refresh={refresh} notify={notify} />
     </div>
