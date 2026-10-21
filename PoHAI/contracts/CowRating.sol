@@ -239,7 +239,6 @@ contract CowRating is Ownable, ITransferValidator {
     error InsufficientStake();
     error PeriodNotElapsed();
     error InvalidBoost();
-    error NoVotingPower();
     error IsMemorial();
     error WeightTooLow();
     error AlreadyWired();
@@ -247,7 +246,6 @@ contract CowRating is Ownable, ITransferValidator {
     error UnknownContent();
     error AuthorMismatch();
     error DormantContent();
-    error VoiceBudgetExceeded();
     error NothingLocked();
     error TierMismatch();
     error BadTier();
