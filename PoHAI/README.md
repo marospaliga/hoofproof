@@ -21,15 +21,15 @@ Anyone can mint a cow. The cow is inert until several independent, rated people
 commit their reputation to it. Real-world facts about the cow (it exists, it's
 cared for, it was sold, it died, its funding need fell to zero, someone worked
 real hours on it) are asserted by people who back their word with a bonded
-score — reputation as collateral. Ratings are **positive-only thumbs-up** spent
-from a refilling **voting power** meter; sustained activity raises your
-**momentum** (up to 1.5× on votes and stakes). Real care work earns **sweat
-equity** scaled by the project's rating. Gains to reputation are capped so only
-steady, patient work compounds; losses are uncapped so lies hurt immediately.
-Spendable **Rajas** action-credits, a **GeneralPool** care + gas treasury and
-the **HerdCouncil** (reputation-weighted proposals per herd) make the collective
-layer concrete. Eventually a cow whose funding need stays at zero becomes
-**SelfSustaining** and graduates out of the system's care.
+score — reputation as collateral. Ratings are **positive-only thumbs-up**, and a
+vote is simply **rating spent**: the amount you put behind a cow is the amount it
+gains, so wanting more influence means giving more of your own score. Real care
+work earns **sweat equity** scaled by the project's rating. Gains to reputation
+are capped so only steady, patient work compounds; losses are uncapped so lies
+hurt immediately. Spendable **Rajas** action-credits, a **GeneralPool** care +
+gas treasury and the **HerdCouncil** (reputation-weighted proposals per herd)
+make the collective layer concrete. Eventually a cow whose funding need stays at
+zero becomes **SelfSustaining** and graduates out of the system's care.
 
 ## Contracts (contracts/)
 
@@ -37,10 +37,10 @@ layer concrete. Eventually a cow whose funding need stays at zero becomes
 |---|---|
 | `Stasis.sol` | Non-transferable reputation ledger. Gains capped at +10%/period, losses uncapped, genesis awards decay over a year, idle accounts decay lazily, bonded score is protected from decay. |
 | `CowNFT.sol` | ERC-721 cow records. Permissionless mint, born **Inert**; status (Inert → Active → SelfSustaining / Memorial) moves only through the rating engine. Herds, correctable metadata CID. |
-| `CowRating.sol` | The engine: conviction staking (with early-exit penalty), concentration caps, the **voting-power** thumbs-up (cows + images + posts, content folds into the cow's rating), **ethical momentum** (activity decays over 90d, 1x–1.5x on votes and stakes), **sweat-equity rewards** scaled by the project's rating, an active-rater registry that the cycle credit reads, herd bonuses, the funding-need lifecycle, and the rated transfer handshake. |
+| `CowRating.sol` | The engine: conviction staking (with early-exit penalty), concentration caps, the **rating-spend vote** (cows + images + posts, content folds into the cow's rating; the amount you give is the amount the cow gains), **sweat-equity rewards** scaled by the project's rating, an active-rater registry that the cycle credit reads, herd bonuses, the funding-need lifecycle, and the rated transfer handshake. |
 | `Attestation.sol` | Staked testimony: bonded claims about the real world. Quorum executes (death → Memorial, sale → offline transfer, funding → lifecycle, **Labor** → sweat-equity award). Disputes are resolved by the pilot operator in the MVP. |
-| `GeneralPool.sol` | The "genesis pool": **Rajas** spendable action-credits with Sattva↔Rajas conversion, the momentum-scaled **gas rebate** (more reputation → the pool pays more of your gas), the voluntary no-yield **care pool** per cow, the platform **value index** (backing / rating / Stasis / Rajas / active cows per epoch), **charitable causes** (GoFundMe-style escrow: anyone opens a cause, backers contribute ether, the creator releases it toward the real goal), and the **movement cycle**: `settleCycle()` measures the field's positive growth since the last settle and pays a gain-capped credit pool (`backerShareBps` to that cycle's backers pro rata by contribution, the rest to its active raters pro rata by activity) — **rating flows only when the whole field demonstrably moved, never when you pay**. |
-| `HerdCouncil.sol` | Reputation-weighted proposals per herd: off-chain body → on-chain hash, member votes weighted by the rating of their own cows in the herd × momentum, on-chain tally with execution signals only. |
+| `GeneralPool.sol` | The "genesis pool": **Rajas** spendable action-credits with Sattva↔Rajas conversion, the **gas rebate** for accounts with protection activity, the voluntary no-yield **care pool** per cow, the platform **value index** (backing / rating / Stasis / Rajas / active cows per epoch), **charitable causes** (GoFundMe-style escrow: anyone opens a cause, backers contribute ether, the creator releases it toward the real goal), and the **movement cycle**: `settleCycle()` measures the field's positive growth since the last settle and pays a gain-capped credit pool (`backerShareBps` to that cycle's backers pro rata by contribution, the rest to its active raters pro rata by activity) — **rating flows only when the whole field demonstrably moved, never when you pay**. |
+| `HerdCouncil.sol` | Reputation-weighted proposals per herd: off-chain body → on-chain hash, member votes weighted by the rating of their own cows in the herd, on-chain tally with execution signals only. |
 | `interfaces/ITransferValidator.sol` | The seam CowNFT uses to ask CowRating whether a transfer may happen. |
 
 ## How the pieces talk to each other
@@ -75,8 +75,8 @@ CowRating.setWiring(CowNFT, Attestation)
 ```bash
 npm install
 npm install --prefix frontend
-npm test                 # 61 tests: score math, caps, staking, disputes, lifecycle,
-                         # voting power, momentum, sweat equity, pool, council,
+npm test                 # 104 tests: score math, caps, staking, disputes, lifecycle,
+                         # rating-spend votes, sweat equity, pool, council,
                          # causes + cycle credit
 
 npm run dev              # one command: hardhat node + agora server + vite dev server
@@ -103,13 +103,14 @@ chain id `31337`, and one of the demo accounts listed when the node starts
 > what is on the chain right now.
 
 What you can do in the UI: browse the herd, open a cow, read/start discussion
-threads (and thumbs-up individual posts), stake/unstake rating, give a cow a
-thumbs-up (each spends 20% of your refilling voting power), report real work
-hours for sweat equity, convert Sattva↔Rajas, claim the momentum-scaled gas
-rebate, mint a new cow, transfer one, report a funding need of zero (Hans
+threads (and rate individual posts), stake/unstake rating, rate a cow (a vote is
+simply rating spent — wanting more influence means giving more of your score),
+report real work
+hours for sweat equity, convert Sattva↔Rajas, claim the gas rebate, mint a new
+cow, transfer one, report a funding need of zero (Hans
 starts with a real need of 500 so the solver-credit lifecycle is demoable),
 report a death, and — for cows in a herd — propose and vote on HerdCouncil
-proposals (weight = your cows' rating in that herd × momentum). Phase C adds:
+proposals (weight = your cows' rating in that herd). Phase C adds:
 claim a **profile** (name / bio / avatar / links) shown across threads, votes
 and cards; upload **wallet-signed evidence** on any cow (photos, vet records,
 receipts) which raters can then rate; open or back a **charitable cause** and
@@ -154,11 +155,12 @@ These are the design's spine; every contract enforces a slice of them:
 8. **Sweat is rated, not metered.** The same attested hour pays more on a
    well-rated project (`hours × base rate × cow rating / reference`), so people
    are steered toward real care, not hour-farming.
-9. **More reputation, less you pay.** High **momentum** (sustained recent
-   activity) multiplies your votes and stakes (1x–1.5x), lowers the liquidity a
-   cow needs to activate, and qualifies you for the **GeneralPool gas rebate** —
-   the platform, not the protocol, subsidises your fees.
-10. **Money never votes.** HerdCouncil weight is your cows' rating × momentum,
+9. **A vote is rating spent.** The amount you put behind a cow is exactly the
+   rating it gains — there is no size ladder, no multiplier and no dilution.
+   Wanting more influence means spending more of your own score, and `unvote`
+   hands it straight back. Protection activity qualifies you for the
+   **GeneralPool gas rebate** — the platform, not the protocol, subsidises fees.
+10. **Money never votes.** HerdCouncil weight is your cows' rating,
     and Rajas buys perks and fee relief, never influence.
 11. **Liquid becomes steam.** Moving a cow to a new owner consumes rating (a
     buyer's high score discounts it). Selling *offline* is recorded by attestors
@@ -208,21 +210,20 @@ with the piece that replaces it later:
    store. Currently a zero-dependency JSON file; the store layer is swapped for
    SQLite/Postgres before the pilot without touching the endpoints.
 2. ✅ Vite + React frontend (`frontend/`): herd → cow detail → discussion →
-   thumbs-up → mint, wired to the contracts via ethers v6 and the agorá over
+   rate → mint, wired to the contracts via ethers v6 and the agorá over
    `/api`.
-3. ✅ Phase A — fluid rating core: voting-power meter (replaces the 24h
-   cooldown), positive-only votes on cows + images + posts (content folds into
-   the cow's rating), ethical momentum (1x–1.5x on votes & stakes, weighted
-   activation, decay over 90d), and `Kind.Labor` sweat equity (attested hours ×
+3. ✅ Phase A — fluid rating core: positive-only voices on cows + images + posts
+   (content folds into the cow's rating; the amount given is the amount gained),
+   and `Kind.Labor` sweat equity (attested hours ×
    rating-scaled factor).
 4. ✅ Phase B — perks & collective layer: `GeneralPool` (Rajas ledger +
-   Sattva↔Rajas conversion, momentum-scaled gas rebate funded from the pool,
+   Sattva↔Rajas conversion, protection-gated gas rebate funded from the pool,
    voluntary no-yield care pool, platform value index), `HerdCouncil`
    (reputation-weighted proposals + on-chain tally), and record-level
    visibility (`private/internal/external/public`, server-enforced first).
 5. ✅ Phase C — identities, oracle evidence & charitable causes: per-wallet
    profiles and activity feeds on the agorá; signature-verified evidence
-   uploads (multipart + EIP-191) that raters can thumbs-up on-chain; causes
+   uploads (multipart + EIP-191) that raters can rate on-chain; causes
    escrowed in the `GeneralPool` with a movement-driven cycle credit for
    backers and active raters (no rating is ever bought with money).
 6. ⏭ Sepolia/Amoy demo deployment with ~10 synthetic cows (`npm run

@@ -195,7 +195,7 @@ async function main() {
     await generalPool.allocateCare(4, ethers.parseEther("0.25"), hansNeedClaim);
 
     // r1 reported Hans' need (solver, corroborated) and stays active: that is
-    // protection work, so the momentum-scaled gas rebate is claimable.
+    // protection work, so the protection-gated gas rebate is claimable.
     await generalPool.connect(r1).claimGasRebate();
 
     // Open the platform value index with two snapshots.
@@ -270,7 +270,7 @@ async function main() {
       // protection-linked, r3 curates it with an attributed vote.
       const evKey = ethers.keccak256(ethers.toUtf8Bytes(`evidence:${hash}`));
       await cowRating.connect(r2).registerContent(1, 1, evKey, true);
-      await cowRating.connect(r3)["vote(uint256,uint8,bytes32,uint256,address)"](1, 1, evKey, 1_000, r2.address);
+      await cowRating.connect(r3)["vote(uint256,uint8,bytes32,uint256,address)"](1, 1, evKey, 100, r2.address);
 
       // r2 has now earned oracle credibility: a second document arrives with
       // a trust head start that an independent vote locks in permanently.
@@ -282,8 +282,8 @@ async function main() {
     }
 
     // Prime the cycle baseline, let the field move (active raters), then settle.
-    // r5/r6 vote with free voice budgets, so the movement is real and visible
-    // (r1/r2 already locked their budgets defending the herd's ratings).
+    // r5/r6 spend rating that is still free, so the movement is real and visible
+    // (r1/r2 already committed theirs defending the herd's ratings).
     await generalPool.settleCycle();
     await guardedBoost(stasis, cowRating, r5, 1);
     await guardedBoost(stasis, cowRating, r6, 1);
@@ -308,16 +308,16 @@ async function main() {
   console.log("(chain clock advanced +31 days + a cycle so the funding lifecycle and movement cycle are demoable)");
 }
 
-// Boost a cow, but only with voice the account can actually afford: since a
-// vote is a *voiced lien*, a fully-committed account has no free score left.
+// Boost a cow, but only with rating the account can actually afford: a voice is
+// simply rating spent, so an account already committed elsewhere has less to give.
 async function guardedBoost(stasis, cowRating, account, tokenId) {
   const free = Number(await stasis.freeScore(account));
-  const bps = free >= 115 ? 1_000 : free >= 60 ? 500 : 0;
-  if (bps === 0) {
-    console.log(`  (no free voice left for ${account.address.slice(0, 8)}… — boost skipped)`);
+  const amount = free >= 115 ? 100 : free >= 60 ? 50 : 0;
+  if (amount === 0) {
+    console.log(`  (no free rating left for ${account.address.slice(0, 8)}… — boost skipped)`);
     return;
   }
-  await cowRating.connect(account).boost(tokenId, GENERAL, bps);
+  await cowRating.connect(account).boost(tokenId, GENERAL, amount);
 }
 
 async function applyPlan(plan, tokenId, c) {

@@ -14,43 +14,45 @@ independently. If this server ever disagrees with the chain, the chain wins.
   basis) is untouched, only `freeScore` (= `effectiveScore − bonded − voiced`)
   drops. So a backer keeps their field-level power while their Stasis backs the cow.
 - A lien cannot be spent, staked or double-committed. Withdrawing it (unvote,
-  dilution, stale reap) returns it to the free pool and subtracts the rating:
-  rating never floats free of the Stasis behind it.
+  stale reap) returns it to the free pool and subtracts the rating: rating never
+  floats free of the Stasis behind it.
 
-## Voice (the fixed field pool)
+## A vote is just rating spent
 
-- Each account's concurrent voice budget = `effectiveScore × maxVoiceBps (20%) ×
-  momentum ÷ BPS²` (`CowRating.voiceBudget`, view-only).
-- Voting power (rate limit, ~5 full votes/day, refills linearly) is separate and
-  unchanged. A vote spends voting power AND voices Stasis.
-- Over-budget votes dilute the voter's oldest *releasable* locks first (rating
-  flows back, nothing is minted). Conviction-locked (labor) and hidden-content
-  locks are skipped. `unvote` frees immediately; dormant-content locks can be
-  reaped permissionlessly.
-- Stakes do not consume voice. They bond score and activate cows.
-- Min-bond edge: an account that has voiced its 20% may fall below the 100-Stasis
-  claim bond; it must `unvote` to make room. The field shows both free and voiced
-  score so this is never a surprise.
-
+- There is **one kind of vote**. A voice carries no size ladder, no momentum
+  multiplier and no kind weighting: the amount you pass *is* the rating added to
+  the cow (and to the content, if you voted on content). Voting harder means
+  spending more.
+- Your rating **is** your budget. Committing `n` voices `n` and leaves you
+  `freeScore − n` to spend elsewhere. There is no separate power meter and no
+  refill timer; the only bound is the rating you actually hold.
+- There is **no dilution and no zero-sum pool**: nothing is ever trimmed from
+  an older vote to make room. A vote simply fails (`InsufficientFree`) when you
+  have spent more rating than you hold.
+- `unvote` (or a permissionless reap of a dormant lock) hands the rating straight
+  back. Voting and backing are the same action, so `boost` (whole cow) and
+  `vote` (content) are two entry points to one spend.
+- Stakes are the *other* commitment: they bond score (`Stasis.bond`) toward
+  activation and are not voice. A lien and a bond both draw on the same free
+  Stasis, so an account that has voiced everything may fall below the 100-Stasis
+  claim bond and must `unvote` to make room.
 
 ## Content and authorship
 
 - Posts (kind 2) and images/evidence (kind 1) are claimed on-chain via
   `registerContent` (first claim wins) or auto-claimed by the first voter.
   Attributed votes (`vote(…, author)`) must name the registered author.
-- **Kind weighting**: a voice is worth different rating depending on what it
-  points at. Evidence and direct cow boosts count in full; discussion is softened
-  to 40% (`discussionBps`). The whole schedule is flat by default and lives in
-  `setRatingPolicy`; a diminishing curve can be switched on later without a
-  redeploy. Labor and care always count in full.
-- Author award per vote = `weight × 10% × totalRatingPoints / (totalRatingPoints
-  + weight)` — small votes pay ~full 10%, field-moving votes are damped.
+- Rating is **not** weighted by what it points at: a voice of 100 adds 100 to
+  the content and 100 to the cow, whether it is evidence, a post or a direct
+  cow boost.
+- Author award per vote = `amount × 10% × totalRatingPoints / (totalRatingPoints
+  + amount)` — small votes pay ~full 10%, field-moving votes are damped.
 - Awards **transfer** a slice of the voter's voiced lien to the author; they never
   mint. Total supply is unchanged, the author receives real (now-free) Stasis, and
   the cow keeps the remaining rating. Awards pay only when the content is
   protection-linked AND the cow's protection anchor is live (Active + fresh Care
   quorum / Labor / need record). Self-votes are allowed and logged (`isSelf`),
-  kept honest by dilution + damping.
+  kept honest by damping.
 - Content with no vote/heartbeat inside `contentDormantWindow` (180d) goes
   dormant: new votes revert, old locks become reapable.
 
@@ -93,11 +95,10 @@ tie-broken by lifetime rating. It is a display sort, never a payout input.
 `oracleCred[account]` accumulates the author awards an account actually received.
 Registering a protection-linked document grants a provisional head start of
 `cred × 5%` (capped at 200) — but the head start is **not free rating**: the
-author pledges it from their own Stasis, capped by their remaining voice budget,
-so every point of rating stays backed. The doc arrives trusted, but the pledge is
-released (`reapProvisional`) unless an independent vote corroborates within 30
-days (self-votes and heartbeats don't count). Newcomers start at zero and must be
-rated; proven documenters scale.
+author pledges it from their own free Stasis, so every point of rating stays
+backed. The doc arrives trusted, but the pledge is released (`reapProvisional`)
+unless an independent vote corroborates within 30 days (self-votes and heartbeats
+don't count). Newcomers start at zero and must be rated; proven documenters scale.
 
 ## Care redemption (Stasis → real money, one way)
 
@@ -117,7 +118,7 @@ rated; proven documenters scale.
 ## Moderation (rating-backed democracy)
 
 Any anchored photo/post can be proposed for hiding or restoring. The proposer
-counts first with their full standing (score × momentum). A 66% supermajority
+counts first with their full standing (score). A 66% supermajority
 of expressed weight decides alone after a 48h timelock; otherwise a 3-day
 challenge window needs a majority plus ≥2 distinct raters. Execution only flips
 a reversible server visibility flag off an executed on-chain proposal

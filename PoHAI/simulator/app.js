@@ -33,16 +33,13 @@ function bind() {
 }
 
 async function acctStats(addr) {
-  const [score, bonded, vp, mom, locked, budget, prot] = await Promise.all([
+  const [score, bonded, locked, prot] = await Promise.all([
     C.stasis.effectiveScore(addr),
     C.stasis.bonded(addr),
-    C.cowRating.votingPowerOf(addr),
-    C.cowRating.momentumBps(addr),
     C.cowRating.voiceLocked(addr),
-    C.cowRating.voiceBudget(addr),
     C.cowRating.protectionActivity(addr),
   ]);
-  return { score: Number(score), bonded: Number(bonded), vp: Number(vp), mom: Number(mom), locked: Number(locked), budget: Number(budget), prot: Number(prot) };
+  return { score: Number(score), bonded: Number(bonded), locked: Number(locked), prot: Number(prot) };
 }
 
 async function cowRows() {
@@ -74,19 +71,16 @@ async function renderField() {
   const stats = await Promise.all(
     wallets.map(async (w, i) => {
       try {
-        const [score, bonded, vp, mom, locked, budget, prot, cred] = await Promise.all([
+        const [score, bonded, locked, prot, cred] = await Promise.all([
           C.stasis.effectiveScore(w.address),
           C.stasis.bonded(w.address),
-          C.cowRating.votingPowerOf(w.address),
-          C.cowRating.momentumBps(w.address),
           C.cowRating.voiceLocked(w.address),
-          C.cowRating.voiceBudget(w.address),
           C.cowRating.protectionActivity(w.address),
           C.cowRating.oracleCred(w.address).catch(() => 0n),
         ]);
-        return { i, addr: w.address, score: Number(score), bonded: Number(bonded), vp: Number(vp), mom: Number(mom), locked: Number(locked), budget: Number(budget), prot: Number(prot), cred: Number(cred) };
+        return { i, addr: w.address, score: Number(score), bonded: Number(bonded), locked: Number(locked), prot: Number(prot), cred: Number(cred) };
       } catch {
-        return { i, addr: w.address, score: 0, bonded: 0, vp: 0, mom: 10000, locked: 0, budget: 0, prot: 0, cred: 0 };
+        return { i, addr: w.address, score: 0, bonded: 0, locked: 0, prot: 0, cred: 0 };
       }
     })
   );
@@ -128,15 +122,14 @@ async function renderField() {
   const tb = $("voters");
   tb.innerHTML = "";
   for (const s of [...stats].sort((a, b) => b.score - a.score)) {
-    const vpct = `${s.vp / 100}%`;
-    const voicePct = s.budget > 0 ? Math.min(100, Math.round((s.locked / s.budget) * 100)) : 0;
+    const voicePct = s.score > 0 ? Math.min(100, Math.round((s.locked / s.score) * 100)) : 0;
     const tr = document.createElement("tr");
     if (s.i === me) tr.style.background = "#161b22";
     tr.innerHTML =
       `<td>#${s.i}${s.i === me ? " ◀" : ""}</td>` +
       `<td><b>${s.score}</b> <span class="muted">${totalScore ? ((s.score / totalScore) * 100).toFixed(1) : 0}%</span></td>` +
-      `<td>${s.score - s.bonded}</td><td>${vpct}</td><td>${(s.mom / 10000).toFixed(2)}×</td>` +
-      `<td><div style="display:flex;align-items:center;gap:6px"><div style="flex:1;min-width:80px;height:8px;background:#21262d;border-radius:4px"><div style="height:8px;width:${voicePct}%;background:${s.locked > s.budget ? "#ff7b72" : "#58a6ff"};border-radius:4px"></div></div>${s.locked}/${s.budget}</div></td>` +
+      `<td>${s.score - s.bonded}</td><td>${s.locked}</td>` +
+      `<td><div style="display:flex;align-items:center;gap:6px"><div style="flex:1;min-width:80px;height:8px;background:#21262d;border-radius:4px"><div style="height:8px;width:${voicePct}%;background:${s.locked > s.score ? "#ff7b72" : "#58a6ff"};border-radius:4px"></div></div>${s.locked}/${s.score}</div></td>` +
       `<td>${s.prot}</td><td>${s.cred}</td>`;
     tb.appendChild(tr);
   }
@@ -148,7 +141,7 @@ async function refresh() {
   document.querySelectorAll("#accounts button").forEach((b, i) => b.classList.toggle("active-acct", i === me));
   try {
     const s = await acctStats(addr);
-    $("mestats").textContent = `score ${s.score} · bonded ${s.bonded} · VP ${s.vp / 100}% · mom ${(s.mom / 10000).toFixed(2)}× · voice ${s.locked}/${s.budget} · protection ${s.prot}`;
+    $("mestats").textContent = `score ${s.score} · bonded ${s.bonded} · voice ${s.locked} locked · protection ${s.prot}`;
     const total = await C.cowRating.totalRatingPoints();
     $("field").textContent = `totalRating ${total}`;
     await renderField();
@@ -275,14 +268,14 @@ $("sc-dilute").onclick = () => wrap("scenario dilution", async () => {
   const before = await asUser(6, async (c, w) => Number(await c.cowRating.voiceLocked(w.address)));
   log(`acct #6 locked before: ${before}`);
   for (const tid of [1, 4, 5]) {
-    await asUser(6, async (c) => submit(() => c.cowRating.boost(tid, GENERAL(), 1000)));
-    log(`acct #6 boosted cow #${tid}`);
+    await asUser(6, async (c) => submit(() => c.cowRating.boost(tid, GENERAL(), 100)));
+    log(`acct #6 boosted cow #${tid} with 100 rating`);
   }
   const after = await asUser(6, async (c, w) => ({
     locked: Number(await c.cowRating.voiceLocked(w.address)),
-    budget: Number(await c.cowRating.voiceBudget(w.address)),
+    score: Number(await c.stasis.effectiveScore(w.address)),
   }));
-  log(`acct #6 locked after: ${after.locked}/${after.budget} (oldest locks diluted to fit)`);
+  log(`acct #6 locked after: ${after.locked} of ${after.score} (a voice spends rating directly)`);
 });
 
 $("sc-headstart").onclick = () => wrap("scenario head-start", async () => {

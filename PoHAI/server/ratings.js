@@ -312,22 +312,22 @@ async function authorInfo(address) {
       out.registered = (out.registered || 0) + 1;
     }
   }
-  // Live reputation (score x momentum) for badges.
+  // Live reputation for badges.
   try {
     const { provider } = chain();
     const stasis = new ethers.Contract(addrOf("stasis"), loadAbi("Stasis"), provider);
     const rating = new ethers.Contract(addrOf("cowRating"), loadAbi("CowRating"), provider);
-    const [score, momentum, pActivity] = await Promise.all([
+    const [score, voiceLocked, pActivity] = await Promise.all([
       stasis.effectiveScore(address).catch(() => 0n),
-      rating.momentumBps(address).catch(() => 10000n),
+      rating.voiceLocked(address).catch(() => 0n),
       rating.protectionActivity(address).catch(() => 0n),
     ]);
     out.score = num(score);
-    out.momentum = num(momentum);
+    out.voiceLocked = num(voiceLocked);
     out.protection = num(pActivity);
   } catch {
     out.score = 0;
-    out.momentum = 10000;
+    out.voiceLocked = 0;
     out.protection = 0;
   }
   return out;

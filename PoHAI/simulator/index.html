@@ -54,7 +54,7 @@
     <div id="fieldbar" style="display:flex;height:22px;border-radius:6px;overflow:hidden;margin-top:8px;border:1px solid var(--border)"></div>
     <div id="fieldtotals" class="muted" style="margin-top:6px"></div>
     <table style="margin-top:8px">
-      <thead><tr><th>#</th><th>Score</th><th>Free</th><th>VP</th><th>Mom</th><th>Voice (locked/budget)</th><th>Prot</th><th>Cred</th></tr></thead>
+      <thead><tr><th>#</th><th>Score</th><th>Free</th><th>Locked</th><th>Voice (locked/score)</th><th>Prot</th><th>Cred</th></tr></thead>
       <tbody id="voters"></tbody>
     </table>
   </div>
@@ -73,7 +73,7 @@
   </div>
 
   <div class="panel">
-    <strong>🔴 Live thread</strong> <span class="muted">bots vote a post every few seconds — watch rating breathe: votes land, budgets fill, dilution bites</span>
+    <strong>🔴 Live thread</strong> <span class="muted">bots vote a post every few seconds — watch rating breathe: each vote spends rating, unvotes hand it back</span>
     <div class="row" style="margin-top:8px">
       <input id="live-cow" type="number" min="1" value="1" style="width:70px" title="Cow to post on" />
       <input id="live-text" placeholder="post text (hashed on-chain)" style="flex:1;min-width:200px" />

@@ -38,14 +38,13 @@ async function main() {
     ["r2 (acct #2)", r2.address],
   ];
   for (const [label, addr] of scores) {
-    const [s, b, vp, mom] = await Promise.all([
+    const [s, b, locked] = await Promise.all([
       stasis.effectiveScore(addr),
       stasis.bonded(addr),
-      cowRating.votingPowerOf(addr),
-      cowRating.momentumBps(addr),
+      cowRating.voiceLocked(addr),
     ]);
     console.log(
-      `score  ${label}: effective=${s} bonded=${b} votePower=${vp} momentum=${mom}`
+      `score  ${label}: effective=${s} bonded=${b} ratingSpent=${locked}`
     );
   }
 
@@ -66,12 +65,11 @@ async function main() {
     cowRating.protectionAnchorLive(4),
     cowRating.protectionAnchorLive(1),
   ]);
-  const r1Budget = await cowRating.voiceBudget(r1.address);
   const r1Locked = await cowRating.voiceLocked(r1.address);
   console.log(
     `protection: laborHours=${laborHours} careQuorums=${careQuorums} solved=${solved} ` +
       `anchor[Hans]=${anchorHans} anchor[Blossom]=${anchorBlossom} ` +
-      `voice[r1]=${r1Locked}/${r1Budget}`
+      `voice[r1]=${r1Locked} rating spent`
   );
 
   // ---- Phase C: causes + movement cycle
