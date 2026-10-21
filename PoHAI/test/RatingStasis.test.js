@@ -111,10 +111,10 @@ describe("rating = voiced Stasis (unification)", function () {
       const { cowRating, attestation, stasis, owner, stranger, tokenId } = await loadFixture(fixture);
       await grantGenesis(stasis, [stranger], 100);
 
-      // Voice the max 20% of a 100-Stasis score with two 10% boosts.
-      await cowRating.connect(stranger).boost(tokenId, PIGS, 1_000);
-      await cowRating.connect(stranger).boost(tokenId, PIGS, 1_000);
-      expect(await stasis.freeScore(stranger.address)).to.equal(80);
+      // Voice the whole 100-Stasis score with two amounts.
+      await cowRating.connect(stranger).boost(tokenId, PIGS, 50);
+      await cowRating.connect(stranger).boost(tokenId, PIGS, 50);
+      expect(await stasis.freeScore(stranger.address)).to.equal(0);
 
       // The 100-Stasis bond requirement no longer fits in free score.
       await expect(

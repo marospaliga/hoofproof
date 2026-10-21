@@ -67,40 +67,44 @@ describe("Protection-gated rating (P1)", function () {
     });
   });
 
-  describe("zero-sum voice", function () {
-    it("caps concurrent locks at 20% of score and dilutes oldest first", async function () {
-      const { cowRating, alice, tokenId } = await loadFixture(fixture);
+  describe("rating is the budget", function () {
+    it("lets a rater commit rating down to their free balance, then stops", async function () {
+      const { cowRating, stasis, alice, tokenId } = await loadFixture(fixture);
 
-      // Budget = 10_000 x 20% x 1.0 = 2_000.
-      expect(await cowRating.voiceBudget(alice.address)).to.equal(2_000);
+      // Alice holds 10_000 Stasis. Committing voices it one-for-one.
+      expect(await stasis.freeScore(alice.address)).to.equal(10_000);
 
       const a = hash("post-a");
       const b = hash("post-b");
-      const c = hash("post-c");
-      // Evidence votes credit in full (100%), so each locks 1_000 of the budget.
-      await cowRating.connect(alice).vote(tokenId, 1, a, 1_000);
-      await cowRating.connect(alice).vote(tokenId, 1, b, 1_000);
-      expect(await cowRating.voiceLocked(alice.address)).to.be.lte(2_010);
+      await cowRating.connect(alice).vote(tokenId, 1, a, 4_000);
+      await cowRating.connect(alice).vote(tokenId, 1, b, 4_000);
+      expect(await cowRating.voiceLocked(alice.address)).to.equal(8_000);
+      expect(await stasis.freeScore(alice.address)).to.equal(2_000);
 
-      // Third max vote overflows the budget: oldest lock (post-a) is freed.
-      await cowRating.connect(alice).vote(tokenId, 1, c, 1_000);
-      expect(await cowRating.contentRatingOf(tokenId, 1, a)).to.equal(0);
-      expect(await cowRating.voiceLocked(alice.address)).to.be.lte(
-        await cowRating.voiceBudget(alice.address)
-      );
+      // Two thousand left: 2_001 is refused, and nothing was diluted.
+      await expect(
+        cowRating.connect(alice).vote(tokenId, 1, hash("post-c"), 2_001)
+      ).to.be.revertedWithCustomError(stasis, "InsufficientFree");
+      expect(await cowRating.contentRatingOf(tokenId, 1, a)).to.equal(4_000);
+      expect(await cowRating.contentRatingOf(tokenId, 1, b)).to.equal(4_000);
+
+      // ...but exactly 2_000 fits.
+      await cowRating.connect(alice).vote(tokenId, 1, hash("post-c"), 2_000);
+      expect(await stasis.freeScore(alice.address)).to.equal(0);
     });
 
-    it("frees budget immediately on unvote", async function () {
-      const { cowRating, alice, tokenId } = await loadFixture(fixture);
+    it("frees rating immediately on unvote", async function () {
+      const { cowRating, stasis, alice, tokenId } = await loadFixture(fixture);
       const a = hash("post-unvote");
       await cowRating.connect(alice).vote(tokenId, 2, a, 1_000);
       const locked = await cowRating.voiceLocked(alice.address);
-      expect(locked).to.be.greaterThan(0);
+      expect(locked).to.equal(1_000);
 
       const key = await cowRating.contentKeyOf(tokenId, 2, a);
       await cowRating.connect(alice).unvote(key);
       expect(await cowRating.voiceLocked(alice.address)).to.equal(0);
       expect(await cowRating.contentRatingOf(tokenId, 2, a)).to.equal(0);
+      expect(await stasis.freeScore(alice.address)).to.equal(10_000);
     });
   });
 

@@ -107,8 +107,9 @@ describe("Academy — zero-start course", () => {
     const s3 = await completionSig(academy, grader, 1, other.address);
     await academy.connect(other).complete(1, s3);
     expect(await academy.isCertified(other.address)).to.be.false;
+    // A voice is rating, so this spends 10 of the 100 Stasis the course paid.
     await expect(
-      cowRating.connect(other).boost(tokenId, ethers.encodeBytes32String("general"), 1_000)
+      cowRating.connect(other).boost(tokenId, ethers.encodeBytes32String("general"), 10)
     ).to.emit(cowRating, "Boosted");
   });
 
@@ -134,11 +135,11 @@ describe("Academy — zero-start course", () => {
     await academy.connect(learner).complete(1, sig);
     expect(await stasis.effectiveScore(learner.address)).to.equal(100);
 
-    // 10% of score per vote is the max (maxBoostBps) — course score buys a
-    // real, if small, voice.
+    // A voice spends rating directly — the course's 100 Stasis buys a real,
+    // if small, voice on the cow.
     await expect(
-      cowRating.connect(learner).boost(tokenId, ethers.encodeBytes32String("general"), 1_000)
+      cowRating.connect(learner).boost(tokenId, ethers.encodeBytes32String("general"), 10)
     ).to.emit(cowRating, "Boosted");
-    expect(await cowRating.voiceLocked(learner.address)).to.be.greaterThan(0);
+    expect(await cowRating.voiceLocked(learner.address)).to.equal(10);
   });
 });

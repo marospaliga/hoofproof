@@ -23,13 +23,12 @@ interface IAttestation {
 ///    moves one to a new owner.
 ///
 /// Rating is non-transferable between people, but it can be *committed* —
-/// staked onto a cow, voiced as a thumbs-up, and spent as the cost of a
-/// transfer. There is no hard cooldown: every account has a **voting power**
-/// meter that refills continuously, so votes are fluid but brigading still
-/// depletes the attacker. Votes may target the cow itself, an image or a
-/// discussion post (content is how authenticity is proven), and **ethical
-/// momentum** — recent, sustained activity — raises how much a voice weighs
-/// and how far a stake pushes a cow toward activation.
+/// staked onto a cow, or voiced as a thumbs-up on the cow or on content under
+/// it, and spent as the cost of a transfer. **A voice is simply rating
+/// committed**: there is no size ladder and no weighting formula, so voting
+/// harder means spending more rating. The rating you commit is refundable once
+/// the lock period elapses; there is no separate budget or power meter, because
+/// your rating *is* the budget.
 contract CowRating is Ownable, ITransferValidator {
     uint256 public constant BPS = 10_000;
 
@@ -39,22 +38,16 @@ contract CowRating is Ownable, ITransferValidator {
     uint256 public lockPeriod = 30 days; // conviction window
     uint256 public earlyUnlockPenaltyBps = 5_000; // max 50%, scaled by time remaining
 
-    // ---- voting (thumbs up)
-    /// @notice At most this share of a rater's score per vote.
-    uint256 public maxBoostBps = 1_000; // 10%
-    /// @notice Each thumbs-up spends this share of the account's voting power.
-    uint256 public voteCostBps = 2_000; // 20%
-    /// @notice Full voting-power refill time. Power recovers linearly.
-    uint256 public voteRecovery = 1 days;
-
-    // ---- ethical momentum
-    /// @notice Recent, sustained activity scales an account's voice. The
-    ///         multiplier runs from 1x (idle / brand new) to 1.5x (sustained
-    ///         recent activity), decaying linearly over `momentumDecay`.
+    // ---- voting (rating put behind a cow)
+    /// @notice A voice is simply rating committed. There is no size ladder:
+    ///         rating *is* the amount, and it is refundable until the lock
+    ///         period elapses (see `unvote`). `minVoice` is only a dust guard.
+    uint256 public minVoice = 1;
+    /// @notice Recent, sustained activity still marks an account as a live
+    ///         participant — it no longer scales a vote, it only feeds the
+    ///         activity ledger the cycle credit pays out against.
     uint256 public momentumDecay = 90 days;
-    uint256 public momentumMinBps = 10_000; // 1.00x
-    uint256 public momentumMaxBps = 15_000; // 1.50x
-    uint256 public maxActivityPoints = 500; // activity needed for the full 1.5x
+    uint256 public maxActivityPoints = 500;
 
     // ---- sweat equity (real-world care work)
     uint256 public sweatBaseRate = 1; // reputation points per attested hour
@@ -89,14 +82,8 @@ contract CowRating is Ownable, ITransferValidator {
     struct Stake {
         uint256 amount;
         uint256 since;
-        uint256 weightBps; // momentum snapshot at stake time (activation weighting)
         uint8 tier; // conviction lock tier: 0 flexible, 1 = 90d, 2 = 180d
         uint256 weighted; // last recorded contribution (recomputed on touch)
-    }
-
-    struct VotePower {
-        uint256 power; // bps remaining (0..10_000)
-        uint256 updatedAt;
     }
 
     struct Funding {
@@ -111,17 +98,15 @@ contract CowRating is Ownable, ITransferValidator {
 
     mapping(uint256 => mapping(address => Stake)) public stakes;
     mapping(uint256 => uint256) public totalStaked;
-    /// Staked rating weighted by each rater's momentum snapshot. Activation
-    /// is decided on this, so high-momentum raters push a cow further
-    /// ("lower liquidity requirements" for trusted communities).
+    /// Staked rating weighted by conviction (tier ramp). Activation is decided
+    /// on this, so longer commitments push a cow toward Active faster.
     mapping(uint256 => uint256) public totalWeightedStaked;
     mapping(uint256 => uint256) public cowRating;
     /// Content-level ratings: contentRating[tokenId][cidHash][kind bps bytes].
     mapping(uint256 => mapping(bytes32 => mapping(uint8 => uint256))) public contentRating;
     mapping(uint256 => Funding) public funding;
 
-    mapping(address => VotePower) public votePower;
-    /// Lazy activity ledger for momentum (decays at read time).
+    /// Lazy activity ledger (decays at read time).
     mapping(address => uint256) public activity;
     mapping(address => uint256) public activityAt;
 
@@ -157,10 +142,8 @@ contract CowRating is Ownable, ITransferValidator {
     uint256 public laborWindow = 90 days;
     uint256 public needWindow = 90 days;
 
-    // ---- zero-sum voice (a fixed per-voter budget; new votes dilute old ones)
-    /// @notice Share of an account's score concurrently lockable as voice.
-    uint256 public maxVoiceBps = 2_000; // 20%
-    /// @notice Base author share of a vote's weight, pre whale-damping.
+    // ---- voices (rating committed to a cow or to content under it)
+    /// @notice Base author share of a vote's value, pre whale-damping.
     uint256 public authorShareBps = 1_000; // 10%
     mapping(address => uint256) public voiceLocked;
     mapping(address => mapping(bytes32 => uint256)) public lockOf;
@@ -177,19 +160,11 @@ contract CowRating is Ownable, ITransferValidator {
     mapping(bytes32 => LockTarget) public lockTarget;
     mapping(address => bytes32[]) private _voterKeys;
     mapping(address => mapping(bytes32 => uint256)) private _voterKeyPos; // 1-based
-    mapping(address => uint256) private _voterKeyHead;
 
-    // ---- rating weights: what a voice is worth, by content kind
-    /// @notice Credited rating per kind (BPS of the raw weight). Discussion is
-    ///         softened: talk moves the cow less than proof of care. Flat by
-    ///         default — `curveMode` can switch on a rating-dependent curve
-    ///         later without redeploying.
-    uint16 public discussionBps = 4_000; // post: 40%
-    uint16 public evidenceBps = 10_000; // image / signed evidence: 100%
-    uint16 public cowVoteBps = 10_000; // direct boost: 100%
-    /// @notice 0 = flat. 1 = diminishing: reference / (reference + rating).
-    uint8 public curveMode;
-    uint256 public curveReference = 1_000;
+    // ---- author awards
+    /// @notice Cap on the share of a curator's voice that can be transferred
+    ///         to an author, so a single vote cannot hand over a whole lien.
+    uint256 public authorAwardCapBps = 2_000; // 20%
 
     // ---- labor conviction (worker chooses how much of the minted reward to commit)
     /// @notice Share of an attested-labor reward the worker commits back as
@@ -239,7 +214,7 @@ contract CowRating is Ownable, ITransferValidator {
 
     event Staked(uint256 indexed tokenId, address indexed account, uint256 amount, uint256 totalStaked);
     event Unstaked(uint256 indexed tokenId, address indexed account, uint256 amount, uint256 returned);
-    event Voted(uint256 indexed tokenId, address indexed account, uint8 kind, bytes32 cidHash, uint256 bps, uint256 weight, uint256 newRating);
+    event Voted(uint256 indexed tokenId, address indexed account, uint8 kind, bytes32 cidHash, uint256 weight, uint256 newRating);
     event Boosted(uint256 indexed tokenId, address indexed account, bytes32 category, uint256 weight, uint256 newRating);
     event LaborRewarded(uint256 indexed tokenId, address indexed worker, uint256 attestedHours, uint256 reward);
     event FundingNeedRecorded(uint256 indexed tokenId, uint256 previous, uint256 current, address solver);
@@ -249,13 +224,11 @@ contract CowRating is Ownable, ITransferValidator {
     event WiringSet(address indexed cowNFT, address indexed attestation);
     event ContentRegistered(uint256 indexed tokenId, uint8 kind, bytes32 indexed cidHash, address indexed author, bool protectionLinked);
     event ContentRewarded(uint256 indexed tokenId, uint8 kind, bytes32 indexed cidHash, address indexed author, address curator, uint256 award, bool isSelf);
-    event LocksDiluted(address indexed voter, uint256 freedWeight, uint256 remainingLocked);
     event Unvoted(address indexed voter, bytes32 indexed key, uint256 freedWeight);
     event ConvictionPoked(uint256 indexed tokenId, address indexed account, uint256 newWeighted);
     event HeadStartGranted(uint256 indexed tokenId, uint8 kind, bytes32 indexed cidHash, address indexed author, uint256 amount);
     event HeadStartReaped(bytes32 indexed key, uint256 amount);
     event LaborCommitted(uint256 indexed tokenId, address indexed worker, uint256 amount, uint256 unlockAt);
-    event RatingPolicySet(uint16 discussionBps, uint16 evidenceBps, uint16 cowVoteBps, uint8 curveMode, uint256 curveReference);
     event ModerationSet(address indexed moderation, uint256 slashBps);
     event ContentFlagged(uint256 indexed tokenId, bytes32 indexed key, bool hidden);
     event ContentSlashed(bytes32 indexed key, address indexed voter, uint256 amount);
@@ -310,23 +283,17 @@ contract CowRating is Ownable, ITransferValidator {
         contentDormantWindow = window;
     }
 
-    /// @notice Tune what a voice is worth per kind and whether the rating curve
-    ///         is flat (0) or diminishing (1).
+    /// @notice Tune the labor conviction window and the moderation slash cap.
     function setRatingPolicy(
-        uint16 discussion,
-        uint16 evidence,
-        uint16 cowVote,
-        uint8 mode,
-        uint256 curveRef,
+        uint16, /* discussion (unused: a voice is rating, no kind weighting) */
+        uint16, /* evidence */
+        uint16, /* cowVote */
+        uint8, /* mode */
+        uint256, /* curveRef */
         uint256 lockPeriod_,
         uint256 slashBps
     ) external onlyOwner {
-        if (discussion > BPS || evidence > BPS || cowVote > BPS || mode > 1 || slashBps > BPS) revert InvalidBoost();
-        discussionBps = discussion;
-        evidenceBps = evidence;
-        cowVoteBps = cowVote;
-        curveMode = mode;
-        curveReference = curveRef;
+        if (slashBps > BPS) revert InvalidBoost();
         laborLockPeriod = lockPeriod_;
         moderationSlashBps = slashBps;
     }
@@ -409,10 +376,9 @@ contract CowRating is Ownable, ITransferValidator {
         if (s.since == 0) {
             s.since = block.timestamp;
             s.tier = tier;
-            s.weightBps = momentumBps(msg.sender);
         }
         s.amount += amount;
-        s.weighted = (s.amount * s.weightBps * convictionBps(s.since, s.tier)) / BPS / BPS;
+        s.weighted = (s.amount * convictionBps(s.since, s.tier)) / BPS;
         totalStaked[tokenId] += amount;
         totalBacking += amount;
         totalWeightedStaked[tokenId] += s.weighted;
@@ -436,7 +402,7 @@ contract CowRating is Ownable, ITransferValidator {
         Stake storage s = stakes[tokenId][account];
         if (s.amount == 0) return;
         totalWeightedStaked[tokenId] -= s.weighted;
-        s.weighted = (s.amount * s.weightBps * convictionBps(s.since, s.tier)) / BPS / BPS;
+        s.weighted = (s.amount * convictionBps(s.since, s.tier)) / BPS;
         totalWeightedStaked[tokenId] += s.weighted;
         emit ConvictionPoked(tokenId, account, s.weighted);
         _tryActivate(tokenId);
@@ -467,7 +433,7 @@ contract CowRating is Ownable, ITransferValidator {
             s.since = 0;
             s.weighted = 0;
         } else {
-            s.weighted = (s.amount * s.weightBps * convictionBps(s.since, s.tier)) / BPS / BPS;
+            s.weighted = (s.amount * convictionBps(s.since, s.tier)) / BPS;
             totalWeightedStaked[tokenId] += s.weighted;
         }
         totalStaked[tokenId] -= amount;
@@ -479,35 +445,7 @@ contract CowRating is Ownable, ITransferValidator {
         emit Unstaked(tokenId, msg.sender, amount, returned);
     }
 
-    // ------------------------------------------------------------ voting power
-
-    /// @notice Voting power refills linearly: full charge in `voteRecovery`.
-    function _regen(uint256 power, uint256 updatedAt) internal view returns (uint256) {
-        if (power >= BPS) return BPS;
-        uint256 elapsed = block.timestamp > updatedAt ? block.timestamp - updatedAt : 0;
-        uint256 recover = (elapsed * BPS) / voteRecovery;
-        return power + recover >= BPS ? BPS : power + recover;
-    }
-
-    /// @notice Persist any accumulated power regeneration.
-    function _tickVotePower(address account) internal {
-        VotePower storage vp = votePower[account];
-        if (vp.updatedAt == 0) {
-            vp.updatedAt = block.timestamp;
-            vp.power = BPS;
-            return;
-        }
-        vp.power = _regen(vp.power, vp.updatedAt);
-        vp.updatedAt = block.timestamp;
-    }
-
-    function votingPowerOf(address account) public view returns (uint256) {
-        VotePower storage vp = votePower[account];
-        if (vp.updatedAt == 0) return BPS;
-        return _regen(vp.power, vp.updatedAt);
-    }
-
-    // --------------------------------------------------------- ethical momentum
+    // ----------------------------------------------------------- activity ledger
 
     function _activityAt(address account) internal view returns (uint256) {
         uint256 last = activityAt[account];
@@ -532,20 +470,12 @@ contract CowRating is Ownable, ITransferValidator {
 
     /// @notice Cumulative, uncapped-decay protection ledger: only care labor,
     ///         solver credits and protection-linked curation touch it. Gates the
-    ///         gas rebate together with (recent) momentum.
+    ///         gas rebate.
     function _touchProtection(address account, uint256 points) internal {
         if (points == 0 || account == address(0)) return;
         uint256 next = protectionActivity[account] + points;
         if (next > maxProtectionActivity) next = maxProtectionActivity;
         protectionActivity[account] = next;
-    }
-
-    /// @notice BPS multiplier for an account's votes and stakes, 1x..1.5x.
-    function momentumBps(address account) public view returns (uint256) {
-        uint256 bonus = _activityAt(account);
-        if (bonus > maxActivityPoints) bonus = maxActivityPoints;
-        uint256 headroom = momentumMaxBps - momentumMinBps;
-        return momentumMinBps + (headroom * bonus) / maxActivityPoints;
     }
 
     /// @notice Public read of the (decayed) activity ledger. The GeneralPool
@@ -606,12 +536,8 @@ contract CowRating is Ownable, ITransferValidator {
         uint256 headStart = (cred * headStartBps) / BPS;
         if (headStart > maxHeadStart) headStart = maxHeadStart;
 
-        // Only as much as the author can actually voice: remaining budget and
-        // free score both bound the pledge.
-        uint256 locked = voiceLocked[author];
-        uint256 budget = voiceBudget(author);
-        uint256 room = budget > locked ? budget - locked : 0;
-        if (headStart > room) headStart = room;
+        // Only as much as the author can actually voice: free score bounds the
+        // pledge. There is no separate voice budget any more — rating is it.
         uint256 free = stasis.freeScore(author);
         if (headStart > free) headStart = free;
         if (headStart == 0) return;
@@ -691,38 +617,12 @@ contract CowRating is Ownable, ITransferValidator {
         tokenId = a.claimToken(claimRef);
     }
 
-    /// @notice Concurrently lockable voice: score x 20% x momentum.
-    function voiceBudget(address account) public view returns (uint256) {
-        return (stasis.effectiveScore(account) * maxVoiceBps * momentumBps(account)) / BPS / BPS;
-    }
-
     /// @notice Whale-damped author share: small votes pay ~full 10%, votes big
     ///         enough to move the field pay a fraction.
     function authorAwardPreview(uint256 weight) public view returns (uint256) {
         uint256 total = totalRatingPoints;
         if (total == 0 || weight == 0) return 0;
         return (weight * authorShareBps * total) / (BPS * (total + weight));
-    }
-
-    /// @notice Credited rating per kind: discussion is softened, evidence and
-    ///         direct backing are full.
-    function _kindBps(uint8 kind) internal view returns (uint256) {
-        if (kind == uint8(VoteKind.Post)) return discussionBps;
-        if (kind == uint8(VoteKind.Image)) return evidenceBps;
-        return cowVoteBps;
-    }
-
-    /// @notice The rating curve. Flat today; `curveMode == 1` turns on a
-    ///         diminishing return so a saturated cow needs harder proof.
-    function _curveBps(uint256 rating) internal view returns (uint256) {
-        if (curveMode == 0) return BPS;
-        return (curveReference * BPS) / (curveReference + rating);
-    }
-
-    /// @notice Rating a vote of `weight` actually credits for `kind` on a cow
-    ///         currently rated `rating`.
-    function _creditFor(uint8 kind, uint256 weight, uint256 rating) internal view returns (uint256) {
-        return (weight * _kindBps(kind) * _curveBps(rating)) / BPS / BPS;
     }
 
     /// @notice Subtract `amount` of rating from wherever `key` stores it: the
@@ -749,7 +649,7 @@ contract CowRating is Ownable, ITransferValidator {
         }
     }
 
-    function _recordLock(address voter, bytes32 key, uint256 weight) internal {
+    function _recordLock(address voter, bytes32 key, uint256 amount) internal {
         if (lockOf[voter][key] == 0) {
             _voterKeys[voter].push(key);
             _voterKeyPos[voter][key] = _voterKeys[voter].length; // 1-based
@@ -758,9 +658,9 @@ contract CowRating is Ownable, ITransferValidator {
                 keyVoters[key].push(voter);
             }
         }
-        lockOf[voter][key] += weight;
+        lockOf[voter][key] += amount;
         lockAt[voter][key] = block.timestamp;
-        voiceLocked[voter] += weight;
+        voiceLocked[voter] += amount;
     }
 
     function _removeKey(address voter, bytes32 key) internal {
@@ -774,7 +674,6 @@ contract CowRating is Ownable, ITransferValidator {
         }
         _voterKeys[voter].pop();
         delete _voterKeyPos[voter][key];
-        if (_voterKeyHead[voter] > last - 1) _voterKeyHead[voter] = last - 1;
     }
 
     function _freeLock(address voter, bytes32 key, uint256 amount) internal {
@@ -791,85 +690,41 @@ contract CowRating is Ownable, ITransferValidator {
         _subtractRating(key, amount);
     }
 
-    /// @notice Dilute the voter's oldest *releasable* locks until `need` voice
-    ///         is free. Conviction-locked (labor) and hidden content are skipped.
-    ///         Rating flows back to the field — dilution never mints.
-    function _dilute(address voter, uint256 need) internal {
-        uint256 freed;
-        uint256 guard;
-        while (freed < need) {
-            if (++guard > 100) revert VoiceBudgetExceeded();
-            bytes32[] storage keys = _voterKeys[voter];
-            uint256 head = _voterKeyHead[voter];
-            while (head < keys.length && lockOf[voter][keys[head]] == 0) head++;
-            _voterKeyHead[voter] = head;
-
-            bytes32 key = bytes32(0);
-            for (uint256 scan = head; scan < keys.length; scan++) {
-                bytes32 k = keys[scan];
-                if (lockOf[voter][k] == 0) continue;
-                if (lockUntil[voter][k] > block.timestamp) continue;
-                if (contentHidden[k]) continue;
-                key = k;
-                break;
-            }
-            if (key == bytes32(0)) revert VoiceBudgetExceeded();
-            uint256 amt = lockOf[voter][key];
-            _freeLock(voter, key, amt);
-            freed += amt;
-        }
-        emit LocksDiluted(voter, freed, voiceLocked[voter]);
-    }
-
     function _noteTarget(bytes32 key, uint256 tokenId, uint8 kind, bytes32 cidHash, bool isBoost) internal {
         if (!lockTarget[key].set) {
             lockTarget[key] = LockTarget(tokenId, kind, cidHash, isBoost, true);
         }
     }
 
-    function _lockVoice(address voter, bytes32 key, uint256 weight) internal {
-        uint256 locked = voiceLocked[voter];
-        uint256 budget = voiceBudget(voter);
-        if (locked + weight > budget) _dilute(voter, locked + weight - budget);
-        // Commit the lien: rating is Stasis, not a shadow counter.
-        stasis.voice(voter, weight);
-        _recordLock(voter, key, weight);
+    function _lockVoice(address voter, bytes32 key, uint256 amount) internal {
+        // Committing voice *is* spending Stasis: the lien is a real Stasis
+        // lien, not a shadow counter. There is no per-voter budget — your
+        // rating is the budget, and it is consumed as you use it.
+        stasis.voice(voter, amount);
+        _recordLock(voter, key, amount);
     }
 
-    function _applyVote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 weight) internal returns (uint256) {
-        cowRating[tokenId] += weight;
-        totalRatingPoints += weight;
+    function _applyVote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 amount) internal returns (uint256) {
+        cowRating[tokenId] += amount;
+        totalRatingPoints += amount;
         if (kind != uint8(VoteKind.Cow)) {
-            contentRating[tokenId][cidHash][kind] += weight;
+            contentRating[tokenId][cidHash][kind] += amount;
         }
         return cowRating[tokenId];
     }
 
-    /// @notice The weight a vote carries, then spends 20% of voting power.
-    function _voteWeight(address account, uint256 bps) internal returns (uint256 weight) {
-        if (bps == 0 || bps > maxBoostBps) revert InvalidBoost();
-        _tickVotePower(account);
-        if (votePower[account].power < voteCostBps) revert NoVotingPower();
-        votePower[account].power -= voteCostBps;
-
-        weight = stasis.effectiveScore(account);
-        weight = (weight * bps) / BPS;
-        weight = (weight * momentumBps(account)) / BPS;
-        if (weight == 0) revert WeightTooLow();
-    }
-
-    /// @notice Thumbs-up a cow, image or post. Every vote locks voice from a
-    ///         fixed per-voter budget — over-budget votes dilute the voter's
-    ///         oldest locks first, so the field is zero-sum. Protection-linked
-    ///         votes on anchored cows additionally mint a damped author award.
-    function vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 bps) external {
-        _vote(tokenId, kind, cidHash, bps, address(0));
+    /// @notice Rate a cow, image or post by spending `amount` of rating.
+    ///         There is no size ladder: the amount *is* the weight, so rating
+    ///         harder means spending more rating. Protection-linked votes on
+    ///         anchored cows additionally pay the author a damped award.
+    function vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 amount) external {
+        _vote(tokenId, kind, cidHash, amount, address(0));
     }
 
     /// @notice Attributed vote: `author` must match the content registry
     ///         (`address(0)` behaves like the legacy call).
-    function vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 bps, address author) external {
-        _vote(tokenId, kind, cidHash, bps, author);
+    function vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 amount, address author) external {
+        _vote(tokenId, kind, cidHash, amount, author);
     }
 
     /// @notice Resolve (or first-claim) the content registry for a vote.
@@ -899,24 +754,21 @@ contract CowRating is Ownable, ITransferValidator {
         }
     }
 
-    function _vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 bps, address author) internal {
+    function _vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 amount, address author) internal {
         if (kind > uint8(VoteKind.Post)) revert InvalidBoost();
-        if (bps == 0 || bps > maxBoostBps) revert InvalidBoost();
+        if (amount < minVoice) revert WeightTooLow();
         if (cowNFT.statusOf(tokenId) == CowNFT.Status.Memorial) revert IsMemorial();
 
         bytes32 lockKey = kind == uint8(VoteKind.Cow)
             ? cowKeyOf(tokenId)
             : _resolveContent(tokenId, kind, cidHash, author);
 
-        uint256 rawWeight = _voteWeight(msg.sender, bps);
-        uint256 weight = _creditFor(kind, rawWeight, cowRating[tokenId]);
-        if (weight == 0) revert WeightTooLow();
         _noteTarget(lockKey, tokenId, kind, cidHash, false);
-        _lockVoice(msg.sender, lockKey, weight);
+        _lockVoice(msg.sender, lockKey, amount);
         _touchActivity(msg.sender, 2);
-        uint256 newRating = _applyVote(tokenId, kind, cidHash, weight);
-        _rewardContent(lockKey, weight);
-        emit Voted(tokenId, msg.sender, kind, cidHash, bps, weight, newRating);
+        uint256 newRating = _applyVote(tokenId, kind, cidHash, amount);
+        _rewardContent(lockKey, amount);
+        emit Voted(tokenId, msg.sender, kind, cidHash, amount, newRating);
     }
 
     /// @notice Protection-gated author award, read from storage (thin stack).
@@ -957,8 +809,8 @@ contract CowRating is Ownable, ITransferValidator {
         emit ContentRewarded(t.tokenId, t.kind, t.cidHash, creator, msg.sender, award, msg.sender == creator);
     }
 
-    /// @notice Release one of your own voice locks (frees budget immediately).
-    ///         Conviction-locked (labor) liens and hidden content are frozen.
+    /// @notice Release one of your own voice locks (hands the rating straight
+    ///         back). Conviction-locked (labor) liens and hidden content stay frozen.
     function unvote(bytes32 key) external {
         uint256 amt = lockOf[msg.sender][key];
         if (amt == 0) revert NothingLocked();
@@ -1019,29 +871,29 @@ contract CowRating is Ownable, ITransferValidator {
             }
         }
         locked = voiceLocked[voter];
-        budget = voiceBudget(voter);
+        // Kept for ABI compatibility: the budget *is* the account's rating.
+        budget = stasis.effectiveScore(voter);
     }
 
-    /// @notice Legacy thumbs-up on the whole cow with a need-parameter weight.
-    ///         Routes through the same voice budget as content votes.
-    function boost(uint256 tokenId, bytes32 category, uint256 bps) external {
+    /// @notice Commit rating to the whole cow. `category` may reference a
+    ///         need-weight parameter, which scales the amount actually applied.
+    function boost(uint256 tokenId, bytes32 category, uint256 amount) external {
         if (cowNFT.statusOf(tokenId) == CowNFT.Status.Memorial) revert IsMemorial();
-        uint256 rawWeight = _voteWeight(msg.sender, bps);
+        if (amount < minVoice) revert WeightTooLow();
 
+        uint256 applied = amount;
         uint256 param = parameter[category];
-        if (param != 0) rawWeight = (rawWeight * param) / BPS;
-
-        uint256 weight = _creditFor(uint8(VoteKind.Cow), rawWeight, cowRating[tokenId]);
-        if (weight == 0) revert WeightTooLow();
+        if (param != 0) applied = (applied * param) / BPS;
+        if (applied == 0) revert WeightTooLow();
 
         bytes32 key = cowKeyOf(tokenId);
         _noteTarget(key, tokenId, 0, bytes32(0), true);
-        _lockVoice(msg.sender, key, weight);
-        cowRating[tokenId] += weight;
-        totalRatingPoints += weight;
+        _lockVoice(msg.sender, key, applied);
+        cowRating[tokenId] += applied;
+        totalRatingPoints += applied;
         _touchActivity(msg.sender, 2);
 
-        emit Boosted(tokenId, msg.sender, category, weight, cowRating[tokenId]);
+        emit Boosted(tokenId, msg.sender, category, applied, cowRating[tokenId]);
     }
 
     function contentRatingOf(uint256 tokenId, uint8 kind, bytes32 cidHash) external view returns (uint256) {

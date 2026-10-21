@@ -39,7 +39,7 @@ describe("GeneralPool", function () {
 
 
   describe("gas rebates", function () {
-    it("pays nothing to a rater without momentum", async function () {
+    it("pays nothing to a rater without protection activity", async function () {
       const { generalPool, stranger, owner } = await loadFixture(fixture);
       await owner.sendTransaction({
         to: await generalPool.getAddress(),
@@ -47,10 +47,10 @@ describe("GeneralPool", function () {
       });
       await expect(
         generalPool.connect(stranger).claimGasRebate()
-      ).to.be.revertedWithCustomError(generalPool, "NoMomentum");
+      ).to.be.revertedWithCustomError(generalPool, "NoProtection");
     });
 
-    it("pays a momentum-scaled rebate once per period", async function () {
+    it("pays a fixed rebate once per period", async function () {
       const { generalPool, cowRating, alice, owner, tokenId } = await loadFixture(fixture);
 
       // A generous base so the rebate outweighs the tx gas in this test.
@@ -60,13 +60,11 @@ describe("GeneralPool", function () {
         value: ethers.parseEther("1"),
       });
 
-      // Alice curates protection-linked content (protection activity), then
-      // boosts for momentum (2 + 2 activity points → ~1.01x).
+      // Alice curates protection-linked content, which is what qualifies.
       const img = ethers.keccak256(ethers.toUtf8Bytes("care-photo"));
       await cowRating.connect(alice).registerContent(tokenId, 1, img, true);
       await cowRating.connect(alice)["vote(uint256,uint8,bytes32,uint256,address)"](tokenId, 1, img, 1_000, alice.address);
-      await cowRating.connect(alice).boost(tokenId, PIGS, 1_000);
-      expect(await cowRating.momentumBps(alice.address)).to.be.greaterThan(10_000);
+      expect(await cowRating.protectionActivity(alice.address)).to.be.greaterThan(0);
 
       const before = await ethers.provider.getBalance(alice.address);
       await generalPool.connect(alice).claimGasRebate();

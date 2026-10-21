@@ -13,7 +13,7 @@ import {CowNFT} from "./CowNFT.sol";
 /// The "genesis pool" of the ecosystem: one place that (1) tracks the value
 /// of the whole platform over time (the index), (2) holds the spendable
 /// **Rajas** action-credits with Sattva<->Rajas conversion, (3) earmarks care
-/// allowance per cow, (4) lets high-momentum raters claim fee rebates so
+/// allowance per cow, (4) lets protection-active accounts claim fee rebates so
 /// "more reputation means less you pay" is real — the pool covers the gas cost,
 /// and (5) escrows GoFundMe-style **charitable events** whose backers earn
 /// reputation only *cyclically*, sized by how much the whole field moved.
@@ -124,7 +124,7 @@ contract GeneralPool is Ownable {
     mapping(bytes32 => uint256) public spendApproval; // key -> approval block
 
     /// @notice Gas rebates subsidise protectors: minimum cumulative protection
-    ///         activity alongside the momentum requirement.
+    ///         activity to claim.
     uint256 public minProtectionActivity = 1;
 
     bool private _cyclePrimed;
@@ -171,7 +171,6 @@ contract GeneralPool is Ownable {
     error ZeroAmount();
 
     error AlreadyClaimed();
-    error NoMomentum();
     error EmptyPool();
     error EmptyCid();
     error NoSuchEvent();
@@ -263,20 +262,13 @@ contract GeneralPool is Ownable {
 
     // -------------------------------------------------------- fee rebates
 
-    /// @notice Weekly, capped refund of the pool's native balance, scaled by the
-    ///         caller's ethical momentum — full tier at 1.5x momentum, nothing
-    ///         for a rater who has not shown sustained activity. Subsidises
-    ///         protectors: momentum must be paired with protection activity.
+    /// @notice Weekly, capped refund of the pool's native balance, for raters who
+    ///         have shown protection activity. Subsidises protectors.
     function claimGasRebate() external {
-        uint256 minM = cowRating.momentumMinBps();
-        uint256 maxM = cowRating.momentumMaxBps();
-        uint256 m = cowRating.momentumBps(msg.sender);
-        if (m <= minM) revert NoMomentum();
         if (cowRating.protectionActivity(msg.sender) < minProtectionActivity) revert NoProtection();
         if (block.timestamp < lastGasClaim[msg.sender] + gasRebatePeriod) revert AlreadyClaimed();
 
-        uint256 frac = ((m - minM) * BPS) / (maxM - minM);
-        uint256 rebate = (gasRebateBase * frac) / BPS;
+        uint256 rebate = gasRebateBase;
 
         uint256 balance = address(this).balance;
         if (rebate == 0 || balance == 0) revert EmptyPool();

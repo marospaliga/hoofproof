@@ -14,7 +14,7 @@ import {CowRating} from "./CowRating.sol";
 ///  - Dominance fast-path: if the proposer's side holds a supermajority
 ///    (default 66%) of expressed weight, the action executes after a short
 ///    timelock with no further vote — one clearly-biggest oracle moderates alone.
-///  - Contested path: both sides accumulate weight (score x momentum snapshots,
+///  - Contested path: both sides accumulate standing (score snapshots at
 ///    no VP spent); removal needs a majority AND distinct raters — evenly
 ///    matched sides must build their case.
 /// Hides are reversible (a counter-proposal restores) and fully logged; the
@@ -91,9 +91,9 @@ contract Moderation is Ownable {
         minDistinctVoters = minVoters;
     }
 
-    /// @notice Standing weight: reputation behind an account (score x momentum).
+    /// @notice Standing weight: reputation behind an account.
     function voterWeight(address account) public view returns (uint256) {
-        return (stasis.effectiveScore(account) * cowRating.momentumBps(account)) / BPS;
+        return stasis.effectiveScore(account);
     }
 
     function propose(uint256 tokenId, bytes32 itemKey, Action action) external returns (uint256 id) {

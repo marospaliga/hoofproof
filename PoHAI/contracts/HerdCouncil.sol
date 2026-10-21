@@ -59,7 +59,7 @@ contract HerdCouncil is Ownable {
     }
 
     /// @notice A member's voting weight in a herd = sum of rating of their own
-    ///         cows in that herd, scaled by their ethical momentum.
+    ///         cows in that herd.
     function memberVoteWeight(address account, uint256 herdId) public view returns (uint256 weight) {
         uint256 count = cowNFT.nextTokenId();
         for (uint256 i = 1; i < count; i++) {
@@ -67,9 +67,6 @@ contract HerdCouncil is Ownable {
             if (cowHerd != herdId) continue;
             if (cowNFT.ownerOf(i) != account) continue;
             weight += cowRating.ratingOf(i);
-        }
-        if (weight > 0) {
-            weight = (weight * cowRating.momentumBps(account)) / BPS;
         }
     }
 
