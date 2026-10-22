@@ -71,7 +71,20 @@ app.get("/api/config", (_req, res) => {
     herdCouncil: deployed?.herdCouncil,
     moderation: deployed?.moderation,
     academy: deployed?.academy,
+    // Which ruler the chain is on ("beta" or "production"). The UI shows it so
+    // nobody mistakes a compressed deadline for a bug.
+    clock: deployed?.clock || null,
   });
+});
+
+// The chain's live deadlines. A beta runs a shortened ruler, so the UI reads
+// the real numbers here instead of assuming "30 days".
+app.get("/api/clock", async (_req, res) => {
+  try {
+    res.json(await ratings.clock());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ------------------------------------------------------------------ cows

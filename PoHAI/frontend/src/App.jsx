@@ -17,6 +17,7 @@ import {
   enrichCow,
   myReputation,
   friendlyError,
+  fmtDuration,
 } from "./lib/chain.js";
 import { DEFAULT_CONTRACTS } from "./config.js";
 
@@ -33,8 +34,24 @@ export default function App() {
   const [connectError, setConnectError] = useState("");
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  // The chain's live deadlines. A beta runs a shortened ruler; showing it
+  // stops a tester mistaking a compressed deadline for a broken one.
+  const [clock, setClock] = useState(null);
   const noticeTimer = useRef(null);
   const inFlight = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .clock()
+      .then((c) => {
+        if (alive) setClock(c);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const notify = useCallback((message, kind = "success") => {
     setNotice({ message, kind });
@@ -177,6 +194,21 @@ export default function App() {
           Proof of a <span>Hoof</span>
         </a>
         <span className="muted" style={{ fontSize: 13 }}>testnet demo</span>
+        {clock && clock.windows && (
+          <span
+            className={`clock-chip${clock.profile === "beta" ? " beta" : ""}`}
+            title={
+              clock.profile === "beta"
+                ? "Beta clock: one beta day is one production month. The rules are unchanged — only the deadlines are shorter."
+                : "Production clock: real deadlines."
+            }
+          >
+            ⏱ {clock.profile === "beta" ? "beta" : "clock"} · lock{" "}
+            <b>{fmtDuration(clock.windows.lockPeriod)}</b> · need{" "}
+            <b>{fmtDuration(clock.windows.needPeriod)}</b> · cycle{" "}
+            <b>{fmtDuration(clock.windows.cyclePeriod)}</b>
+          </span>
+        )}
         <div className="spacer" />
         <button
           onClick={() => {

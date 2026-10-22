@@ -14,6 +14,7 @@ async function req(url, options = {}) {
 
 export const api = {
   config: () => req("/config"),
+  clock: () => req("/clock"),
   listCows: () => req("/cows"),
   getCow: (cid) => req(`/cows/${cid}`),
   createCow: (body) => req("/cows", { method: "POST", body: JSON.stringify(body) }),

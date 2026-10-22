@@ -46,6 +46,24 @@ a { color: var(--accent-2); text-decoration: none; }
 .topbar .spacer { flex: 1; }
 .topbar .net { color: var(--muted); font-size: 13px; }
 
+/* The chain's clock. A beta runs a shortened ruler, so this says so out
+   loud rather than letting a tester think a deadline is broken. */
+.clock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.clock-chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+.clock-chip.beta { border-color: var(--accent-2); color: var(--accent-2); }
+.clock-chip.beta b { color: var(--accent-2); }
+
 button {
   background: var(--panel-2);
   color: var(--text);

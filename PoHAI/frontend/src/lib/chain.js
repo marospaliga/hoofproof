@@ -73,6 +73,72 @@ export function applyDeployed(config) {
   };
 }
 
+// The chain's clock, read live off the contracts. The beta runs a shortened
+// ruler (one beta day is one production month), so the UI must never hardcode
+// "30 days" — it asks the chain what it is actually measuring against.
+export async function readTimings(contracts) {
+  const { cowRating, stasis, generalPool, moderation, herdCouncil } = contracts;
+  const [lockPeriod, needPeriod, careWindow, laborWindow, needWindow, headStartWindow,
+    laborLockPeriod, tierCommit1, tierCommit2, momentumDecay, contentDormantWindow,
+    zeroStreakRequired, idleGrace, cyclePeriod, gasRebatePeriod, fastPathDelay,
+    challengeWindow, minDuration, maxDuration] = await Promise.all([
+    cowRating.lockPeriod(),
+    cowRating.needPeriod(),
+    cowRating.careWindow(),
+    cowRating.laborWindow(),
+    cowRating.needWindow(),
+    cowRating.headStartWindow(),
+    cowRating.laborLockPeriod(),
+    cowRating.tierCommit1(),
+    cowRating.tierCommit2(),
+    cowRating.momentumDecay(),
+    cowRating.contentDormantWindow(),
+    cowRating.zeroStreakRequired(),
+    stasis.idleGrace(),
+    generalPool.cyclePeriod(),
+    generalPool.gasRebatePeriod(),
+    moderation ? moderation.fastPathDelay() : Promise.resolve(0),
+    moderation ? moderation.challengeWindow() : Promise.resolve(0),
+    herdCouncil.minDuration(),
+    herdCouncil.maxDuration(),
+  ]);
+  return {
+    lockPeriod: Number(lockPeriod),
+    needPeriod: Number(needPeriod),
+    careWindow: Number(careWindow),
+    laborWindow: Number(laborWindow),
+    needWindow: Number(needWindow),
+    headStartWindow: Number(headStartWindow),
+    laborLockPeriod: Number(laborLockPeriod),
+    tierCommit1: Number(tierCommit1),
+    tierCommit2: Number(tierCommit2),
+    momentumDecay: Number(momentumDecay),
+    contentDormantWindow: Number(contentDormantWindow),
+    zeroStreakRequired: Number(zeroStreakRequired),
+    idleGrace: Number(idleGrace),
+    cyclePeriod: Number(cyclePeriod),
+    gasRebatePeriod: Number(gasRebatePeriod),
+    fastPathDelay: Number(fastPathDelay),
+    challengeWindow: Number(challengeWindow),
+    minDuration: Number(minDuration),
+    maxDuration: Number(maxDuration),
+  };
+}
+
+// A window as a phrase: "30d", "5h 36m", "48m". Mirrors the CLI's wording so
+// the chain and the app say the same thing about the same deadline.
+export function fmtDuration(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  if (!s) return "0m";
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
+
 // Translate contract reverts and ethers internals into plain English for the
 // UI toast. Custom error names can arrive via err.info.error / err.error, or
 // inlined in the message as 'CustomError()'.
@@ -92,7 +158,7 @@ export function friendlyError(err) {
     ConcentrationCap: "One account may hold at most 20% of a cow's backing — this cow needs more, different raters.",
     InvalidBoost: "That vote target isn't valid (votes may rate a cow, a photo or a post).",
     WeightTooLow: "Spend at least a little rating — a vote of zero adds nothing.",
-    PeriodNotElapsed: "The funding need can only be re-recorded once per 30-day period.",
+    PeriodNotElapsed: "The funding need can only be re-recorded once per period. Wait for the current one to close.",
     IsMemorial: "Memorial cows are frozen — no actions can be taken on them.",
     ZeroAmount: "The amount must be greater than zero.",
     InsufficientStake: "You have not staked that much on this cow.",
@@ -104,7 +170,7 @@ export function friendlyError(err) {
     DormantContent: "This thread went dormant (no activity inside the window). A heartbeat reactivates it.",
     NothingLocked: "You have no rating committed there yet.",
     TierMismatch: "Top-ups must keep the original conviction tier. Unstake first to switch tiers.",
-    BadTier: "Unknown conviction tier (0 flexible, 1 = 90d, 2 = 180d).",
+    BadTier: "Unknown conviction tier (0 flexible, 1 and 2 are the longer commitments).",
     TooManyKeys: "Reap at most 20 locks per transaction.",
     NoAnchor: "That cow has no live protection anchor (fresh Care quorum, Labor or need record) — payoffs are locked until protectors report.",
     NoProtection: "The gas rebate subsidises protectors: do protection work first (care, labor, need reports, protection-linked curation).",

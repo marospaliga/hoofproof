@@ -30,10 +30,17 @@ import {
   setLaborCommitBps,
   laborCommitBps,
   friendlyError,
+  readTimings,
+  fmtDuration,
 } from "../lib/chain.js";
 
 export function fmtEth(wei) {
   return wei ? (Number(wei) / 1e18).toFixed(3) + " ETH" : "—";
+}
+
+// A window as a phrase, or a dash while the chain has not answered yet.
+function dur(seconds) {
+  return seconds === undefined || seconds === null ? "—" : fmtDuration(seconds);
 }
 
 // The council of this cow's herd, listed on-chain. Only herd members (cow
@@ -789,7 +796,7 @@ function RatingPanels({ cow }) {
 // Care credit: the cow's rating is its credit line. Burning Stasis here
 // releases real ETH from the cow's care pool — one way, for good. The worker
 // (claim subject) or the cow's owner may redeem; recovery is a herd vote.
-function CarePanel({ tokenId, contracts, account, notify }) {
+function CarePanel({ tokenId, contracts, account, notify, timings }) {
   const [info, setInfo] = useState(null);
   const [amount, setAmount] = useState("");
   const [commitBps, setCommitBps] = useState(10_000);
@@ -896,7 +903,7 @@ function CarePanel({ tokenId, contracts, account, notify }) {
             </div>
             <div className="muted mt4" style={{ fontSize: 12 }}>
               That share of every labor reward is voiced back at the cow as a rating lien, locked
-              ~30 days, then releasable.
+              {timings ? ` ~${dur(timings.laborLockPeriod)}` : ""}, then releasable.
             </div>
           </div>
         </>
@@ -942,8 +949,27 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   const [openId, setOpenId] = useState(undefined);
   const [votePreview, setVotePreview] = useState(null);
   const fileRef = useRef(null);
+  // The chain's clock, read live. On a beta this is a shortened ruler, so
+  // nothing here may assume "30 days".
+  const [timings, setTimings] = useState(null);
 
   const tokenId = cow.tokenId;
+
+  useEffect(() => {
+    let alive = true;
+    if (!contracts) {
+      setTimings(null);
+      return;
+    }
+    readTimings(contracts)
+      .then((t) => {
+        if (alive) setTimings(t);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [contracts]);
 
   // Roles drive progressive disclosure: visitors vote; backers stake;
   // recognized contributors (owner, staker, protection-active) attest.
@@ -1181,8 +1207,8 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                 />
                 <select value={tier} onChange={(e) => setTier(Number(e.target.value))} style={{ width: "auto" }} title="Conviction lock: longer commits ramp toward a higher weight cap">
                   <option value={0}>flexible 1.00×</option>
-                  <option value={1}>90d up to 1.25×</option>
-                  <option value={2}>180d up to 1.50×</option>
+                  <option value={1}>{dur(timings?.tierCommit1)} up to 1.25×</option>
+                  <option value={2}>{dur(timings?.tierCommit2)} up to 1.50×</option>
                 </select>
                 <button
                   className="primary"
@@ -1300,7 +1326,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
             )}
 
             <More id="care" label="🩺 Care credit" openId={moreId} setOpenId={setOpenId}>
-              <CarePanel tokenId={tokenId} contracts={contracts} account={account} notify={notify} />
+              <CarePanel tokenId={tokenId} contracts={contracts} account={account} notify={notify} timings={timings} />
             </More>
 
             {(cow.evidence || []).length > 0 && (
@@ -1324,7 +1350,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
 
       <RatingPanels cow={cow} />
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        Funding records accept one update per 30-day period. Reporting a lower need
+        Funding records accept one update per {dur(timings?.needPeriod)} period. Reporting a lower need
         credits the solver with 10% of the reduction.
       </div>
 

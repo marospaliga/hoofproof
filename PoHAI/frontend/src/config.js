@@ -22,8 +22,8 @@ export const STATUS_COLORS = {
   Memorial: "#a8322b",       // barn red
 };
 
-export const GENESIS_LIFE = 365 * 24 * 60 * 60; // seconds
-export const IDLE_GRACE = 180 * 24 * 60 * 60;
+// The chain's decay windows are not hardcoded here: they are owner-settable
+// (the beta runs a shorter ruler), so the UI reads them live from the chain.
 
 // RFC3339-ish short date for the UI
 export function fmtDate(ts) {

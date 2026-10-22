@@ -10,12 +10,13 @@
 const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
+const { identifyProfile } = require("../scripts/timings");
 
 const ROOT = path.join(__dirname, "..");
 const DEPLOYED = path.join(ROOT, "deployed.json");
 const RPC = process.env.CHAIN_RPC || "http://127.0.0.1:8545";
 
-const NAMES = ["Stasis", "CowNFT", "CowRating", "Attestation", "GeneralPool", "Moderation"];
+const NAMES = ["Stasis", "CowNFT", "CowRating", "Attestation", "GeneralPool", "Moderation", "HerdCouncil"];
 
 function loadAddrs() {
   try {
@@ -46,6 +47,66 @@ function chain() {
 function addrOf(key) {
   const { addrs } = chain();
   return { stasis: addrs.stasis, cowNFT: addrs.cowNFT, cowRating: addrs.cowRating, attestation: addrs.attestation, generalPool: addrs.generalPool, moderation: addrs.moderation }[key];
+}
+
+// ------------------------------------------------------------------ the clock
+
+/// The chain's live deadlines. A beta runs a shortened ruler (one beta day is
+/// one production month), so nothing in the UI may hardcode "30 days" — it
+/// reads the numbers the contracts are actually comparing against.
+async function clock() {
+  const { provider, addrs } = chain();
+  // deployed.json keys are camelCase; the contract names are not.
+  const KEY = {
+    Stasis: "stasis",
+    CowNFT: "cowNFT",
+    CowRating: "cowRating",
+    Attestation: "attestation",
+    GeneralPool: "generalPool",
+    Moderation: "moderation",
+    HerdCouncil: "herdCouncil",
+  };
+  const at = async (name, getter) => {
+    const addr = addrs[KEY[name]];
+    if (!addr) return 0;
+    const c = new ethers.Contract(addr, loadAbi(name), provider);
+    return Number(await c[getter]().catch(() => 0));
+  };
+  const [
+    lockPeriod, needPeriod, careWindow, laborWindow, needWindow, headStartWindow,
+    laborLockPeriod, tierCommit1, tierCommit2, momentumDecay, contentDormantWindow,
+    zeroStreakRequired, genesisLife, idleGrace, idleDecayWindow, cyclePeriod,
+    gasRebatePeriod, fastPathDelay, challengeWindow, minDuration, maxDuration,
+  ] = await Promise.all([
+    at("CowRating", "lockPeriod"),
+    at("CowRating", "needPeriod"),
+    at("CowRating", "careWindow"),
+    at("CowRating", "laborWindow"),
+    at("CowRating", "needWindow"),
+    at("CowRating", "headStartWindow"),
+    at("CowRating", "laborLockPeriod"),
+    at("CowRating", "tierCommit1"),
+    at("CowRating", "tierCommit2"),
+    at("CowRating", "momentumDecay"),
+    at("CowRating", "contentDormantWindow"),
+    at("CowRating", "zeroStreakRequired"),
+    at("Stasis", "genesisLife"),
+    at("Stasis", "idleGrace"),
+    at("Stasis", "idleDecayWindow"),
+    at("GeneralPool", "cyclePeriod"),
+    at("GeneralPool", "gasRebatePeriod"),
+    at("Moderation", "fastPathDelay"),
+    at("Moderation", "challengeWindow"),
+    at("HerdCouncil", "minDuration"),
+    at("HerdCouncil", "maxDuration"),
+  ]);
+  const windows = {
+    lockPeriod, needPeriod, careWindow, laborWindow, needWindow, headStartWindow,
+    laborLockPeriod, tierCommit1, tierCommit2, momentumDecay, contentDormantWindow,
+    zeroStreakRequired, genesisLife, idleGrace, idleDecayWindow, cyclePeriod,
+    gasRebatePeriod, fastPathDelay, challengeWindow, minDuration, maxDuration,
+  };
+  return { windows, profile: identifyProfile(windows) };
 }
 
 // ------------------------------------------------------------------ log cache
@@ -479,4 +540,4 @@ async function poolStats() {
   };
 }
 
-module.exports = { cowBreakdown, contentInfo, trending, ledger, curators, authorInfo, moderationInfo, applyModeration, poolStats, careInfo };
+module.exports = { cowBreakdown, contentInfo, trending, ledger, curators, authorInfo, moderationInfo, applyModeration, poolStats, careInfo, clock };
