@@ -5,6 +5,14 @@ The chain enforces. The server only displays. Every figure under `/api/ratings`,
 from public contract events; `scripts/recomputeRatings.js` replays the same logs
 independently. If this server ever disagrees with the chain, the chain wins.
 
+> **Deadlines are live, not fixed.** Every window this document mentions (the
+> stake lock, the funding-need period, the head-start window, the moderation
+> timelock, the council proposal lifetime, the movement cycle) is owner-settable
+> and read back from the chain. `GET /api/clock` returns the numbers currently
+> in force. The durations quoted below are the production defaults; the beta
+> chain runs the same rules on a ruler shortened 30× — see *The clock* at the
+> end.
+
 ## Rating = voiced Stasis (the one substance)
 
 - A cow's rating **is** the Stasis its backers have voiced at it. A vote is not a
@@ -132,3 +140,30 @@ anyone may then call `CowRating.slashContent(key, batch)` to burn up to
 with it. Restoring unfreezes the survivors; already-burned Stasis is not refunded.
 This is the on-chain cost of backing a fraud — the deterrent that makes voice
 expensive to waste.
+
+## The clock
+
+The system has exactly two time settings per window, and the owner picks
+between them with one call. There is no "beta mode" in the contracts — no
+branch, no `if (beta)`. The rules compare a timestamp against a number; the
+number is what moves.
+
+- `CowRating.setTimings(...)` moves every progression deadline at once: the
+  stake lock, the funding-need period, the three protection-anchor windows,
+  the head-start window, the labour lock, both conviction tiers, the activity
+  decay, the content dormancy and the zero-streak count.
+- `Stasis.setDecayWindows(...)` moves the reputation-fade windows.
+- `GeneralPool.setCycle` / `setGasRebate`, `Moderation.setPolicy` and
+  `HerdCouncil.setDurationLimits` move the cadence windows.
+
+`scripts/timings.js` is the single table of both profiles. The beta profile is
+the production profile divided by 30 — one beta day is one production month —
+so a tester can walk conviction, need periods, dormancy, corroboration and
+moderation inside an afternoon. `npm run timings` prints the live clock;
+`npm run timings:beta` / `:production` switch it; `WARP=2d npm run warp` moves
+the chain's clock forward on a private chain so a deadline can be crossed
+without waiting for it.
+
+Because the rules never change, every figure in this document means the same
+thing on either ruler; only "how long" moves. `GET /api/clock` reports the
+windows currently in force and which profile they match.

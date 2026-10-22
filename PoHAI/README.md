@@ -75,9 +75,9 @@ CowRating.setWiring(CowNFT, Attestation)
 ```bash
 npm install
 npm install --prefix frontend
-npm test                 # 104 tests: score math, caps, staking, disputes, lifecycle,
+npm test                 # 117 tests: score math, caps, staking, disputes, lifecycle,
                          # rating-spend votes, sweat equity, pool, council,
-                         # causes + cycle credit
+                         # causes + cycle credit, beta clock
 
 npm run dev              # one command: hardhat node + agora server + vite dev server
 # in a second terminal, the first time only:
@@ -122,6 +122,56 @@ references.
 
 To reset everything: stop `npm run dev`, delete `server/data.json`, and restart
 — the seed is idempotent per fresh chain.
+
+## The beta clock
+
+A private chain, fake money, and a **shorter ruler**.
+
+The contracts know nothing about "beta". They compare timestamps against
+numbers the owner sets, and `scripts/timings.js` holds two profiles of those
+numbers. Nothing else differs between them: same rules, same arithmetic, same
+events, same revert messages. Only the deadlines move.
+
+| window | production | beta | what it gates |
+|---|---|---|---|
+| `lockPeriod` | 30d | 1d | how long a rating lien stays locked before you can pull it out |
+| `needPeriod` | 30d | 1d | how often a funding need may be re-recorded |
+| `careWindow` / `laborWindow` / `needWindow` | 90d | 3d | how long a protection anchor stays warm |
+| `headStartWindow` | 30d | 1d | how long a provisional head start waits for corroboration |
+| `laborLockPeriod` | 30d | 1d | the lock on a labour commitment |
+| `tierCommit1` / `tierCommit2` | 90d / 180d | 3d / 6d | the conviction ramp to the two longer tiers |
+| `contentDormantWindow` | 180d | 6d | when a thread goes quiet |
+| `momentumDecay` | 90d | 3d | the activity ledger's slide |
+| `genesisLife` / `idleGrace` / `idleDecayWindow` | 365d / 180d / 365d | 12d 4h / 6d / 12d 4h | how fast a reputation fades |
+| `cyclePeriod` | 6h | 12m | the movement cycle |
+| `gasRebatePeriod` | 7d | 5h 36m | the gas rebate cooldown |
+| `fastPathDelay` / `challengeWindow` | 48h / 3d | 1h 36m / 2h 24m | moderation: the dominance fast path and the challenge window |
+| `minDuration` / `maxDuration` (council) | 1d / 30d | 48m / 1d | how long a proposal lives |
+
+Every beta number is exactly the production number divided by 30 — **one beta
+day is one production month**. `zeroStreakRequired` (three periods) is a
+count, not a duration, so it stays where it is.
+
+```bash
+npm run timings            # what the chain is running on right now
+npm run timings:beta       # switch the local chain to the short ruler
+npm run timings:production # put the real ruler back
+WARP=2d npm run warp       # move the chain clock forward (private chain only)
+```
+
+A local deploy starts on the beta clock; a testnet deploy starts on the
+production one. Override either with `POHAI_TIMINGS=beta|production` (deploy)
+or `PROFILE=beta|production` (the standalone script).
+
+`WARP` is how a tester crosses a deadline without waiting for it: stake a
+cow's rating, `WARP=2d npm run warp`, and the lock is up. Time travel is
+refused on any network that is not local, so it can never touch a shared
+testnet. The seed script fast-forwards by exactly one funding-need period
+(plus a cycle), read off the chain, so the demo is valid on either ruler.
+
+The UI never hardcodes a deadline — it reads the live windows from the chain
+(`GET /api/clock`) and shows the current ruler in the top bar, so "one update
+per period" means one day here and one month there.
 
 Testnet deploys:
 
@@ -195,14 +245,18 @@ with the piece that replaces it later:
   dozens; needs an index before a real pilot.
 - **The movement cycle is open-called and short.** Anyone may `settleCycle()`
   (like `snapshotIndex`), and the demo runs a 6 h period purely to show the
-  loop; the owner re-tunes `cyclePeriod` / `backerShareBps` /
-  `creditRatioBps` / `maxCycleCredit` before a pilot. Missed settles roll
-  contributions into the next window.
+  loop (12 min on the beta clock); the owner re-tunes `cyclePeriod` /
+  `backerShareBps` / `creditRatioBps` / `maxCycleCredit` before a pilot. Missed
+  settles roll contributions into the next window.
 - **Real money / shares are out of scope.** The NFT share market (revenue
   rights) is a separate contract family, deliberately not in the MVP. The care
   pool is strictly voluntary and no-yield accounting.
 - **Genesis decay is one year.** A slow handover to earned reputation; tune
   before the pilot to match real participation rates.
+- **The clock is owner-set, not hardcoded.** Every deadline lives in storage
+  and moves with one call (`CowRating.setTimings`, `Stasis.setDecayWindows`,
+  and the existing per-contract setters). The beta profile only shortens them;
+  the rules that read them are untouched.
 
 ## Roadmap after the basics
 
