@@ -264,7 +264,7 @@ $("sc-cold").onclick = () => wrap("scenario cold-start", async () => {
   log(`cow #${minter} status → ${STATUS[st]} (expect Active)`);
 });
 
-$("sc-dilute").onclick = () => wrap("scenario dilution", async () => {
+$("sc-spend").onclick = () => wrap("scenario voice spend", async () => {
   const before = await asUser(6, async (c, w) => Number(await c.cowRating.voiceLocked(w.address)));
   log(`acct #6 locked before: ${before}`);
   for (const tid of [1, 4, 5]) {
@@ -444,7 +444,7 @@ async function ratePost(tid, h, authorAddr, post) {
     `#${me} rated → post ${before.post}→${after.post} · cow #${tid} ${before.cow}→${after.cow}` +
     (before.author !== null ? ` · author score ${before.author}→${after.author}` : " · author unknown (unattributed)") +
     ` · my voice locked ${before.locked}→${after.locked}` +
-    (after.locked < before.locked + 900 ? " · (dilution freed older locks!)" : "");
+    (after.locked !== before.locked + 1000 ? ` · (locked ${after.locked - before.locked}, expected +1000)` : "");
   log(`rated post as #${me}: post ${d(before.post, after.post)}, cow ${d(before.cow, after.cow)}`);
   loadForum();
   refresh();
@@ -493,7 +493,7 @@ $("live-start").onclick = () => {
       ]);
       live.history.push(content);
       if (live.history.length > 40) live.history.shift();
-      const note = cowAfter < cowBefore ? " (cow dipped — someone's oldest lock diluted)" : "";
+      const note = cowAfter < cowBefore ? " (cow rating fell — a slash or an unvote, not a vote)" : "";
       $("live-status").textContent = `post ${content} · cow #${live.tokenId} ${cowAfter}${note} · ${live.history.length} bot votes`;
       $("live-spark").textContent = spark(live.history);
       log(`bot #${bot} voted → post ${content}, cow ${cowAfter}${note}`);
