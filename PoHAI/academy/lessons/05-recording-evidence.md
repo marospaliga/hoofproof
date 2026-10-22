@@ -42,10 +42,15 @@ corroborating context, not a substitute.)
 ## Rating evidence you disagree with
 
 You will read evidence you think is wrong. The system's answer is not
-deletion — it is **your voice**. Downvoting doesn't exist; instead, rate the
-competing evidence up, and let zero-sum voice do the rest. If evidence is
-fraudulent or harmful, moderation proposals exist, decided by rating weight,
-reversible on appeal. Reputation is the judge.
+deletion — it is **your rating**. Downvoting doesn't exist; instead, rate the
+competing evidence up, and let zero-sum rating do the rest. If evidence is
+fraudulent or harmful, a moderation proposal exists — hide or restore — and it
+is decided by the reputation of the people who challenge it. Reputation is
+the judge.
+
+Note the difference: hiding is not deleting. A hide freezes a post so the
+rating committed to it can be slashed in one batch; the record on the chain
+stays, and a later proposal can restore it. Nothing is ever erased.
 
 ## Common failure modes
 
@@ -71,6 +76,6 @@ reversible on appeal. Reputation is the judge.
 3. You believe a protection-linked post is fraudulent. What does the system
    want you to do?
    - a) Delete it
-   - b) Rate the competing evidence with your voice; use moderation only for
-     real fraud, decided by rating weight and reversible on appeal ✓
+   - b) Rate the competing evidence up, and use moderation for real fraud —
+     decided by reputation, reversible by a later proposal ✓
    - c) Spam comments calling it fake

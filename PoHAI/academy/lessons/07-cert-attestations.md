@@ -37,9 +37,10 @@ their number. The honest protocol:
    "I verified it" — you checked evidence sufficient to vouch. If neither,
    don't attest; ask for evidence first. Declining to attest costs you
    nothing. Attesting fraudulently costs you everything.
-2. **Check the hours against the evidence, not the friendship.** The system
-   is designed so that your rating weight makes fraudulent attestations
-   matter less over time — but only if you actually check.
+2. **Check the hours against the evidence, not the friendship.** A refuted
+   claim destroys the bonds behind it: the Stasis is slashed out of your
+   score, not moved somewhere else. Your reputation carries that loss — but
+   only if you actually checked before you signed.
 3. **Never attest the same work twice** through different claims. Padding a
   2-hour job into two 2-hour claims is fraud by any name.
 
@@ -57,7 +58,8 @@ you know what the work is.
   stake — this is the cost that keeps attestations honest.
 - You see a fraudulent claim executing: rate the competing evidence, and if
   it's real fraud, the moderation ladder (propose → challenge → execute,
-  decided by rating weight) exists for exactly this.
+  decided by the reputation of the people who challenge it) exists for
+  exactly this.
 - Disputes about hours between worker and claimer: resolve with evidence
   before the quorum closes. An honest attestor declining is how disputes
   get caught early.
@@ -65,10 +67,11 @@ you know what the work is.
 ## The reputation loop, completed
 
 Course → first Stasis → attest labor on real work → Stasis scaled by the
-cow's rating → rating weight that makes your future attestations and votes
-count for more. Every step of that loop is protection work paying for
-itself. That is the whole economy — and you now know how to participate in
-it honestly, which is the only way it works.
+cow's rating → a bigger reputation, which is what lets you stake more, bond
+bigger claims and carry more weight when you rate something. Every step of
+that loop is protection work paying for itself. That is the whole economy —
+and you now know how to participate in it honestly, which is the only way it
+works.
 
 ## Quiz
 

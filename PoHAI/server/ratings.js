@@ -1,6 +1,6 @@
 // Rating indexer — the off-chain half of the protection-gated rating system.
 //
-// The chain enforces (budgets, dilution, anchors, proofs). This module *reads*:
+// The chain enforces (liens, anchors, proofs). This module *reads*:
 // it replays contract events into per-cow breakdowns, author earnings, curator
 // boards, trending order and the protection -> payout money trail.
 //
@@ -16,7 +16,7 @@ const ROOT = path.join(__dirname, "..");
 const DEPLOYED = path.join(ROOT, "deployed.json");
 const RPC = process.env.CHAIN_RPC || "http://127.0.0.1:8545";
 
-const NAMES = ["Stasis", "CowNFT", "CowRating", "Attestation", "GeneralPool", "Moderation", "HerdCouncil"];
+const NAMES = ["Stasis", "CowNFT", "CowRating", "Attestation", "GeneralPool", "Moderation", "HerdCouncil", "Academy"];
 
 function loadAddrs() {
   try {
@@ -107,6 +107,25 @@ async function clock() {
     gasRebatePeriod, fastPathDelay, challengeWindow, minDuration, maxDuration,
   };
   return { windows, profile: identifyProfile(windows) };
+}
+
+// --------------------------------------------------------------- the pins
+
+/// The curriculum pins the owner committed on-chain: lesson id → the hash of
+/// the file that lesson was served from. A lesson whose file has been edited
+/// since the last pin no longer matches, and the app says so instead of
+/// quietly serving unpinned bytes.
+async function academyPins() {
+  const { provider, addrs } = chain();
+  if (!addrs.academy) return null;
+  const academy = new ethers.Contract(addrs.academy, loadAbi("Academy"), provider);
+  const pins = {};
+  const count = Number(await academy.lessonCount().catch(() => 0));
+  for (let id = 1; id <= count; id++) {
+    const [hash, , exists] = await academy.lessonInfo(id);
+    pins[id] = exists ? hash : null;
+  }
+  return pins;
 }
 
 // ------------------------------------------------------------------ log cache
@@ -540,4 +559,4 @@ async function poolStats() {
   };
 }
 
-module.exports = { cowBreakdown, contentInfo, trending, ledger, curators, authorInfo, moderationInfo, applyModeration, poolStats, careInfo, clock };
+module.exports = { cowBreakdown, contentInfo, trending, ledger, curators, authorInfo, moderationInfo, applyModeration, poolStats, careInfo, clock, academyPins };

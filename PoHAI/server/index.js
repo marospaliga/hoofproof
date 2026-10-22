@@ -444,9 +444,23 @@ app.get("/api/moderation/:id", async (req, res) => {
 
 const CHAIN_IDS = { localhost: 31337, hardhat: 31337, sepolia: 11155111, amoy: 80002 };
 
-app.get("/api/academy/lessons", (_req, res) => {
+app.get("/api/academy/lessons", async (_req, res) => {
   try {
-    res.json(academy.lessonsPublic());
+    const lessons = academy.lessonsPublic();
+    // The curriculum is pinned on-chain. If a lesson file has been edited
+    // since the last pin, say so — never serve unpinned bytes silently.
+    let pins = null;
+    try {
+      pins = await ratings.academyPins();
+    } catch {
+      pins = null;
+    }
+    res.json(
+      lessons.map((l) => ({
+        ...l,
+        pinned: pins ? pins[l.id] === l.hash : null,
+      }))
+    );
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

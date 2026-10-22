@@ -14,6 +14,7 @@
     "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
     "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",
     "seed": "hardhat run scripts/seedDemo.js --network localhost",
+    "pin-lessons": "hardhat run scripts/pinLessons.js --network localhost",
     "timings": "hardhat run scripts/applyTimings.js --network localhost",
     "timings:beta": "PROFILE=beta hardhat run scripts/applyTimings.js --network localhost",
     "timings:production": "PROFILE=production hardhat run scripts/applyTimings.js --network localhost",
