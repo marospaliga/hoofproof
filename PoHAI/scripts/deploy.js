@@ -19,6 +19,8 @@ const hre = require("hardhat");
 const { ethers } = hre;
 const fs = require("fs");
 const path = require("path");
+const { applyProfile } = require("./applyTimings");
+const { PROFILES, defaultProfileFor } = require("./timings");
 
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -84,11 +86,25 @@ async function main() {
   await cowNFT.setRatingEngine(await cowRating.getAddress());
   await cowRating.setWiring(await cowNFT.getAddress(), await attestation.getAddress());
   await cowRating.setModeration(await moderation.getAddress(), 5_000);
-  // Flat kind weights (discussion 40%, evidence/cow 100%), 30d labor lock,
-  // 50% max moderation slash, and 0.001 ETH per burned Stasis.
+  // The kind weights and the curve are gone from the model (a vote is rating
+  // spent), so the first five arguments are inert. What is left here is the
+  // moderation slash cap; the labor lock moves with the rest of the clock in
+  // `setTimings` below, which runs last.
   await cowRating.setRatingPolicy(4_000, 10_000, 10_000, 0, 1_000, 30 * 24 * 3600, 5_000);
   await generalPool.setCarePolicy(1e15);
   await academy.setGrader(deployer.address);
+
+  // ---- the clock -----------------------------------------------------------
+  // A private beta chain runs on a shorter ruler: one beta day is one
+  // production month, so a tester can walk the whole lifecycle in an
+  // afternoon. Public testnets keep the real one. POHAI_TIMINGS overrides.
+  const profileName = defaultProfileFor(hre.network.name);
+  await applyProfile(
+    profileName,
+    { cowRating, stasis, generalPool, moderation, herdCouncil },
+    deployer
+  );
+  console.log(`Clock: ${profileName} — ${PROFILES[profileName].blurb}`);
 
   const summary = {
     network: hre.network.name,
@@ -100,6 +116,9 @@ async function main() {
     herdCouncil: await herdCouncil.getAddress(),
     moderation: await moderation.getAddress(),
     academy: await academy.getAddress(),
+    // Which ruler the chain is running on. The server and the UI read this to
+    // explain themselves ("this beta counts a month as a day").
+    clock: profileName,
   };
   fs.writeFileSync(
     path.join(__dirname, "..", "deployed.json"),
@@ -115,6 +134,7 @@ async function main() {
   console.log("Moderation  ", summary.moderation);
   console.log("Academy     ", summary.academy);
   console.log("Zero-start: no genesis granted — everyone (including the pilot) earns their way in.");
+  console.log(`Clock: ${profileName} — ${PROFILES[profileName].blurb}`);
   console.log("Wrote deployed.json");
 }
 

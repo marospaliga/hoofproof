@@ -173,9 +173,14 @@ async function main() {
   await guardedBoost(stasis, cowRating, r1, 4);    // Hans
 
   // The funding lifecycle lets the owner record a *new* need once per period.
-  // Fast-forward 31 days so the demo's first "Report need 0" is a valid action.
-  await hre.network.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
-  await hre.network.provider.send("evm_mine", []);
+  // Fast-forward just past that period so the demo's first "Report need 0" is a
+  // valid action — however long a period is on this chain. On the production
+  // clock that is a month; on the beta clock it is a day. Reading it off the
+  // chain keeps the seed honest whichever ruler is running.
+  const needPeriod = Number(await cowRating.needPeriod());
+  const cyclePeriod = Number(await generalPool.cyclePeriod());
+  const DAY = 24 * 60 * 60;
+  await warp(needPeriod + DAY);
 
   // ---- Phase A+B demo layer ------------------------------------------------
   // Voting power, sweat equity, the care pool and the platform index.
@@ -287,8 +292,7 @@ async function main() {
     await generalPool.settleCycle();
     await guardedBoost(stasis, cowRating, r5, 1);
     await guardedBoost(stasis, cowRating, r6, 1);
-    await hre.network.provider.send("evm_increaseTime", [13 * 60 * 60]);
-    await hre.network.provider.send("evm_mine", []);
+    await warp(cyclePeriod + 3600);
     await generalPool.settleCycle();
 
     const [movement, credit, backers] = await Promise.all([
@@ -305,7 +309,17 @@ async function main() {
   }
 
   console.log("\nDone. Run `npm run frontend` and open http://localhost:5173");
-  console.log("(chain clock advanced +31 days + a cycle so the funding lifecycle and movement cycle are demoable)");
+  console.log(
+    `(chain clock advanced past one need period + a cycle, so the funding lifecycle and movement cycle are demoable)`
+  );
+}
+
+// Move the chain clock forward and mine, so deadlines that are waiting on the
+// old time get their chance. Only ever used on the local demo chain.
+async function warp(seconds) {
+  console.log(`  (chain clock +${Math.round(seconds / 3600)}h)`);
+  await hre.network.provider.send("evm_increaseTime", [seconds]);
+  await hre.network.provider.send("evm_mine", []);
 }
 
 // Boost a cow, but only with rating the account can actually afford: a voice is

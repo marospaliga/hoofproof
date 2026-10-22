@@ -31,6 +31,17 @@ async function main() {
       `attestation=${deploy.attestation} generalPool=${deploy.generalPool} herdCouncil=${deploy.herdCouncil}`
   );
 
+  // The ruler the chain is running on. A beta counts a month as a day, so it
+  // is worth saying out loud before anyone wonders why a deadline is short.
+  const { readWindows, attach } = require("./applyTimings");
+  const { identifyProfile, fmtDuration } = require("./timings");
+  const live = await readWindows(await attach(deploy));
+  const profile = identifyProfile(live);
+  console.log(
+    `clock:  ${profile ? profile : "custom"} — lock ${fmtDuration(live.lockPeriod)}, ` +
+      `need ${fmtDuration(live.needPeriod)}, cycle ${fmtDuration(live.cyclePeriod)}`
+  );
+
   const [deployer, r1, r2] = await ethers.getSigners();
   const scores = [
     ["deployer (acct #0)", deployer.address],
