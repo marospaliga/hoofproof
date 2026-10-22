@@ -448,6 +448,15 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px
   background: var(--panel-2); color: var(--accent-2);
 }
 .lesson-body { padding: 0 14px 16px; }
+.lesson-pin {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--accent-2);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 13px;
+}
 .lesson-text {
   white-space: pre-wrap; font-family: inherit; font-size: 14px;
   color: var(--text); background: var(--panel-2);

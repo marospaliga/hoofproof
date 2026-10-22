@@ -111,6 +111,12 @@ export default function Course({ contracts, account, notify, onEarned }) {
 
               {open && (
                 <div className="lesson-body">
+                  {l.pinned === false && (
+                    <div className="lesson-pin">
+                      This lesson was edited after it was last pinned on-chain, so its hash no
+                      longer matches the pin. The owner re-pins with <code>npm run pin-lessons</code>.
+                    </div>
+                  )}
                   {/* Lesson markdown is simple enough to render as preformatted prose. */}
                   <pre className="lesson-text">{l.text}</pre>
 
