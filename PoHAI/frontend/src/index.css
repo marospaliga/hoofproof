@@ -390,6 +390,81 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px
   color: var(--accent-2);
 }
 
+/* ---- choosing how much rating to spend --------------------------------- */
+
+/* A vote is rating spent, so the amount *is* the weight: one handle to drag,
+   one box to type in, both showing the same number. */
+.rate-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 190px;
+  min-width: 170px;
+}
+.rate-amount.compact { flex: 0 1 auto; min-width: 0; }
+
+.rate-amount-row { display: flex; align-items: baseline; gap: 6px; }
+.rate-amount-input {
+  width: 100%;
+  max-width: 110px;
+  padding: 6px 9px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.rate-amount-unit { font-size: 12px; }
+
+/* The track is curved (position → amount²) so small votes stay easy to
+   pick: the bottom of the slider is fine-grained, the top reaches all of
+   the free rating. */
+.rate-amount-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent), var(--accent-2));
+  cursor: pointer;
+}
+.rate-amount-slider:disabled { opacity: 0.45; cursor: default; }
+.rate-amount-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 2px rgba(47, 42, 32, 0.25);
+  cursor: grab;
+}
+.rate-amount-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+.rate-amount-slider:disabled::-webkit-slider-thumb { cursor: default; }
+
+.rate-amount-hint { font-size: 11.5px; line-height: 1.35; }
+.rate-amount-hint b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* The panel a content thumb opens: the same picker, inline under the item. */
+.rate-picker {
+  margin-top: 6px;
+  padding: 9px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-width: 320px;
+}
+.thumb.on { border-color: var(--accent); color: var(--accent); background: var(--panel); }
+
 /* ------------------------------------------- do-more accordion (one open) */
 .more {
   background: var(--panel);

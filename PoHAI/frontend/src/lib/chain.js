@@ -298,18 +298,26 @@ export async function myReputation(contracts, account) {
   };
 }
 
-// Preview a vote without sending: a voice is simply rating committed, so the
-// amount *is* the weight. We report how much free rating is left and what the
-// damped author award would be. All view calls — no gas.
-export async function previewVote(contracts, account, kind, amount) {
+// The two numbers a vote preview needs, read once: how much rating the
+// account has free, and how many rating points the whole field holds.
+export async function votePreviewInputs(contracts, account) {
   const { stasis, cowRating } = contracts;
   const [free, locked, total] = await Promise.all([
     stasis.freeScore(account),
     cowRating.voiceLocked(account),
     cowRating.totalRatingPoints(),
   ]);
-  const weight = Number(amount);
-  const totalN = Number(total);
+  return { free: Number(free), locked: Number(locked), total: Number(total) };
+}
+
+// Preview a vote without sending: a voice is simply rating committed, so the
+// amount *is* the weight. We report how much free rating is left and what the
+// damped author award would be. Pure arithmetic on the numbers read above —
+// so it can follow a slider being dragged, without a round trip per pixel.
+export function previewVote(inputs, amount) {
+  const { free = 0, locked = 0, total = 0 } = inputs || {};
+  const weight = Math.max(0, Math.floor(Number(amount) || 0));
+  const totalN = Number(total) || 0;
   const award = totalN > 0 && weight > 0
     ? Math.floor((weight * 1000 * totalN) / (10000 * (totalN + weight)))
     : 0;

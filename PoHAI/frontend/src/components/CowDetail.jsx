@@ -3,6 +3,7 @@ import { fmtDate, shortAddr } from "../config.js";
 import { api } from "../lib/api.js";
 import Name from "./Name.jsx";
 import { RatingDiamonds } from "./Rating.jsx";
+import RatingAmount from "./RatingAmount.jsx";
 import {
   stake,
   unstake,
@@ -11,6 +12,8 @@ import {
   registerContent,
   unvote,
   previewVote,
+  votePreviewInputs,
+  myReputation,
   voiceLocks,
   proposeModeration,
   challengeModeration,
@@ -283,56 +286,109 @@ function ModerationPanel({ tokenId, kind, cidHash, contracts, account, notify, o
   );
 }
 
-function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
+// The two numbers a vote preview needs — free rating and the field's rating
+// points. Read once per wallet; the preview is then arithmetic, so opening the
+// amount panel costs nothing.
+function useVoteInputs(contracts, account) {
+  const [inputs, setInputs] = useState(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    if (!contracts || !account) {
+      setInputs(null);
+      return;
+    }
+    votePreviewInputs(contracts, account)
+      .then((i) => {
+        if (alive) setInputs(i);
+      })
+      .catch(() => {
+        if (alive) setInputs(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [contracts, account, tick]);
+  return [inputs, () => setTick((t) => t + 1)];
+}
+
+// A thumb on a piece of content — a post or an evidence file. The rating you
+// spend *is* the weight, so there is no hidden "100": clicking 👍 opens the
+// amount, and the rater decides exactly how much of their own rating to put
+// behind it. Both kinds share this component so a thumb behaves the same
+// everywhere.
+function ContentThumb({
+  tokenId,
+  kind,
+  hash,
+  author,
+  contracts,
+  account,
+  notify,
+  refresh,
+  label, // "post" | "evidence file" — what the message calls it
+  subject, // "author" | "documenter" — who receives the author award
+  showDormant = false,
+  logActivity,
+}) {
   const [rating, setRating] = useState(null);
-  const [forHash, setForHash] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [dormant, setDormant] = useState(false);
-
-  const hash = contentHash("post:" + post.id);
-  const author = post.authorAddress || null;
-  const [showMod, setShowMod] = useState(false);
   const [earned, setEarned] = useState(0);
+  const [dormant, setDormant] = useState(false);
+  const [showMod, setShowMod] = useState(false);
+  const [inputs, reloadInputs] = useVoteInputs(contracts, account);
+  const seeded = useRef(false);
 
-  // Load the on-chain rating for the current content, and reload whenever the
-  // user switches to a different cow's discussion (hash changes).
-  if (hash !== forHash) {
-    setForHash(hash);
+  const preview = inputs ? previewVote(inputs, amount) : null;
+
+  useEffect(() => {
+    let alive = true;
     if (!contracts) {
       setRating(null);
-    } else {
-      contracts.cowRating
-        .contentRatingOf(tokenId, 2, hash)
-        .then((r) => setRating(Number(r)))
-        .catch(() => setRating(0));
-      if (account) {
-        previewVote(contracts, account, 2, 100)
-          .then(setPreview)
-          .catch(() => setPreview(null));
-      }
-      api
-        .contentInfo(hash)
-        .then((c) => {
-          setDormant(c.registered && !c.active);
-          setEarned(c.authorEarned || 0);
-        })
-        .catch(() => {});
+      return;
     }
-  }
+    contracts.cowRating
+      .contentRatingOf(tokenId, kind, hash)
+      .then((r) => alive && setRating(Number(r)))
+      .catch(() => alive && setRating(0));
+    api
+      .contentInfo(hash)
+      .then((c) => {
+        if (!alive) return;
+        setDormant(Boolean(c.registered && !c.active));
+        setEarned(c.authorEarned || 0);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [contracts, tokenId, kind, hash]);
 
-  async function thumb() {
-    if (!account) return notify("Connect a wallet to rate posts.", "error");
+  // Seed a spend the account can afford once its free rating is known.
+  useEffect(() => {
+    if (seeded.current || !inputs) return;
+    seeded.current = true;
+    if (inputs.free > 0) setAmount(Math.min(100, inputs.free));
+  }, [inputs]);
+
+  async function rate() {
+    if (!account) return notify(`Connect a wallet to rate ${label}s.`, "error");
+    if (!amount) return;
     setBusy(true);
     try {
-      await voteContent(contracts, tokenId, 2, hash, 100, author);
-      setRating((rating || 0) + 100);
+      await voteContent(contracts, tokenId, kind, hash, amount, author);
+      setRating((r) => (r || 0) + amount);
       notify(
-        preview
-          ? `Post rated +${preview.weight} to the cow${preview.authorAward ? `, +${preview.authorAward} to the author` : ""}.`
-          : "Post rated — the rating adds to the cow's authenticity."
+        `Rated the ${label} +${amount === 1 ? "1 point" : `${amount} points`}` +
+          (preview?.authorAward ? `, +${preview.authorAward} to the ${subject}` : "") +
+          " — the rating adds to the cow."
       );
-      refresh();
+      if (logActivity) await logActivity();
+      await refresh();
+      reloadInputs();
+      setOpen(false);
     } catch (err) {
       notify(friendlyError(err), "error");
     } finally {
@@ -344,30 +400,86 @@ function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
     <>
       <span className="inline" style={{ gap: 4 }}>
         <button
-          className="thumb"
+          className={`thumb${open ? " on" : ""}`}
           disabled={busy || !contracts}
-          onClick={thumb}
+          onClick={() => setOpen((v) => !v)}
           title={
-            preview
-              ? `Spends ${preview.weight} rating (${preview.locked} already committed of your score)${earned ? ` · by trusted documenter (+${earned})` : ""}`
-              : "Rate this post: the rating you spend is added to the cow."
+            inputs
+              ? `${inputs.free} free rating — click to choose how much to spend${earned ? ` · by trusted ${subject} (+${earned})` : ""}`
+              : `Rate this ${label}: the rating you spend is added to the cow.`
           }
         >
           👍 {rating ?? "…"}
         </button>
-        <button className="thumb" disabled={!contracts} onClick={() => setShowMod(!showMod)} title="Moderation case for this post">
+        <button
+          className="thumb"
+          disabled={!contracts}
+          onClick={() => setShowMod(!showMod)}
+          title={`Moderation case for this ${label}`}
+        >
           ⚖️
         </button>
-        {dormant && (
+        {showDormant && dormant && (
           <span className="muted" style={{ fontSize: 11 }} title="No votes or heartbeats inside the dormancy window">
             dormant
           </span>
         )}
       </span>
+      {open && (
+        <div className="rate-picker">
+          {account ? (
+            <>
+              <RatingAmount value={amount} onChange={setAmount} free={inputs?.free ?? 0} compact />
+              <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                <button
+                  className="primary"
+                  disabled={!amount || busy || (preview ? preview.overBudget : false)}
+                  onClick={rate}
+                >
+                  {busy ? "…" : `Rate +${amount}`}
+                </button>
+                <button className="thumb" disabled={busy} onClick={() => setOpen(false)}>
+                  cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Connect a wallet to rate this {label}.
+            </span>
+          )}
+        </div>
+      )}
       {showMod && (
-        <ModerationPanel tokenId={tokenId} kind={2} cidHash={hash} contracts={contracts} account={account} notify={notify} onResolved={refresh} />
+        <ModerationPanel
+          tokenId={tokenId}
+          kind={kind}
+          cidHash={hash}
+          contracts={contracts}
+          account={account}
+          notify={notify}
+          onResolved={refresh}
+        />
       )}
     </>
+  );
+}
+
+function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
+  return (
+    <ContentThumb
+      tokenId={tokenId}
+      kind={2}
+      hash={contentHash("post:" + post.id)}
+      author={post.authorAddress || null}
+      contracts={contracts}
+      account={account}
+      notify={notify}
+      refresh={refresh}
+      label="post"
+      subject="author"
+      showDormant
+    />
   );
 }
 
@@ -375,79 +487,20 @@ function PostThumb({ tokenId, post, contracts, account, notify, refresh }) {
 // The signature-verification happened at upload time; rating it is simply
 // rating authentic documentation of the cow.
 function EvidenceThumb({ tokenId, ev, contracts, account, notify, refresh }) {
-  const [rating, setRating] = useState(null);
-  const [forHash, setForHash] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState(null);
-
-  const hash = contentHash("evidence:" + ev.hash);
-  const [showMod, setShowMod] = useState(false);
-  const [earned, setEarned] = useState(0);
-
-  if (hash !== forHash) {
-    setForHash(hash);
-    if (!contracts) {
-      setRating(null);
-    } else {
-      contracts.cowRating
-        .contentRatingOf(tokenId, 1, hash)
-        .then((r) => setRating(Number(r)))
-        .catch(() => setRating(0));
-      if (account) {
-        previewVote(contracts, account, 1, 100)
-          .then(setPreview)
-          .catch(() => setPreview(null));
-      }
-      api
-        .contentInfo(hash)
-        .then((c) => setEarned(c.authorEarned || 0))
-        .catch(() => {});
-    }
-  }
-
-  async function thumb() {
-    if (!account) return notify("Connect a wallet to rate evidence.", "error");
-    setBusy(true);
-    try {
-      await voteContent(contracts, tokenId, 1, hash, 100, ev.uploader || null);
-      setRating((rating || 0) + 100);
-      notify(
-        preview
-          ? `Evidence rated +${preview.weight} authenticity${preview.authorAward ? `, +${preview.authorAward} to the documenter` : ""}.`
-          : "Evidence rated — authenticity feeds the cow's rating."
-      );
-      await api.logActivity(account, "evidence-thumb", "Rated an evidence file");
-      refresh();
-    } catch (err) {
-      notify(friendlyError(err), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <>
-      <span className="inline" style={{ gap: 4 }}>
-        <button
-          className="thumb"
-          disabled={busy || !contracts}
-          onClick={thumb}
-          title={
-            preview
-              ? `Spends ${preview.weight} rating (${preview.locked} already committed of your score)${earned ? ` · by trusted documenter (+${earned})` : ""}`
-              : "Rate this evidence file: the rating you spend is added to the cow."
-          }
-        >
-          👍 {rating ?? "…"}
-        </button>
-        <button className="thumb" disabled={!contracts} onClick={() => setShowMod(!showMod)} title="Moderation case for this photo">
-          ⚖️
-        </button>
-      </span>
-      {showMod && (
-        <ModerationPanel tokenId={tokenId} kind={1} cidHash={hash} contracts={contracts} account={account} notify={notify} onResolved={refresh} />
-      )}
-    </>
+    <ContentThumb
+      tokenId={tokenId}
+      kind={1}
+      hash={contentHash("evidence:" + ev.hash)}
+      author={ev.uploader || null}
+      contracts={contracts}
+      account={account}
+      notify={notify}
+      refresh={refresh}
+      label="evidence file"
+      subject="documenter"
+      logActivity={() => api.logActivity(account, "evidence-thumb", "Rated an evidence file")}
+    />
   );
 }
 
@@ -936,7 +989,7 @@ function More({ id, label, openId, setOpenId, children }) {
   );
 }
 
-export default function CowDetail({ cow, contracts, account, rep, onBack, refresh, notify }) {
+export default function CowDetail({ cow, contracts, account, rep, onBack, refresh, notify, onRep }) {
   const [amount, setAmount] = useState("");
   const [voteAmount, setVoteAmount] = useState(100);
   const [tier, setTier] = useState(0);
@@ -947,7 +1000,6 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   // "Do more" accordion: exactly one section open. undefined = fall back to
   // whichever section matches the visitor's role.
   const [openId, setOpenId] = useState(undefined);
-  const [votePreview, setVotePreview] = useState(null);
   const fileRef = useRef(null);
   // The chain's clock, read live. On a beta this is a shortened ruler, so
   // nothing here may assume "30 days".
@@ -1007,24 +1059,53 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   const isOracle = isOwner || isBacker || (rep.protection ?? 0) > 0;
 
   // Live consequence of the pending 👍 — credited rating and voice cost.
-  // All view calls, so it costs nothing and never touches the network state.
+  // The ceiling is the account's *free* rating, which the App keeps fresh as
+  // the account acts; the field total is read once. The preview is then plain
+  // arithmetic, so dragging the amount slider never costs a round trip.
+  const [fieldTotal, setFieldTotal] = useState(null);
   useEffect(() => {
-    let alive = true;
-    if (!contracts || !account || !rep.score) {
-      setVotePreview(null);
+    if (!contracts) {
+      setFieldTotal(null);
       return;
     }
-    previewVote(contracts, account, 3, voteAmount)
-      .then((p) => {
-        if (alive) setVotePreview(p);
+    let alive = true;
+    contracts.cowRating
+      .totalRatingPoints()
+      .then((t) => {
+        if (alive) setFieldTotal(Number(t));
       })
-      .catch(() => {
-        if (alive) setVotePreview(null);
-      });
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [contracts, account, voteAmount, rep.score]);
+  }, [contracts, rep.score, rep.voiceLocked]);
+
+  const votePreview =
+    rep.score && fieldTotal !== null
+      ? previewVote(
+          {
+            free: rep.free ?? Math.max(rep.score - rep.bonded, 0),
+            locked: rep.voiceLocked ?? 0,
+            total: fieldTotal,
+          },
+          voteAmount
+        )
+      : null;
+
+  // Start from a vote the account can actually afford, and keep the amount
+  // inside the free rating when the ceiling moves under it.
+  const seededAmount = useRef(false);
+  useEffect(() => {
+    if (!rep.score) return;
+    const free = rep.free ?? Math.max(rep.score - rep.bonded, 0);
+    if (!seededAmount.current) {
+      seededAmount.current = true;
+      setVoteAmount(Math.min(100, Math.max(0, free)));
+    } else if (voteAmount > free) {
+      setVoteAmount(Math.max(0, free));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rep.score, rep.free, rep.bonded]);
 
   // Default the accordion open on the section this visitor can actually use —
   // but keep everything collapsed for plain visitors so the rail stays quiet.
@@ -1036,6 +1117,11 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
       await fn();
       notify(`${label} done.`);
       await refresh();
+      // Spending rating moves the ceiling under the amount picker, so pull a
+      // fresh reputation rather than letting the rail quote a stale one.
+      if (onRep && contracts && account) {
+        myReputation(contracts, account).then(onRep).catch(() => {});
+      }
     } catch (err) {
       notify(friendlyError(err), "error");
     } finally {
@@ -1122,20 +1208,15 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                 </span>
               </div>
 
-              <div className="actions">
-                <select
+              <div className="actions rate-actions">
+                <RatingAmount
                   value={voteAmount}
-                  onChange={(e) => setVoteAmount(Number(e.target.value))}
-                  style={{ width: "auto" }}
-                  title="How much rating to spend backing this cow"
-                >
-                  <option value={10}>10 rating</option>
-                  <option value={100}>100 rating</option>
-                  <option value={500}>500 rating</option>
-                </select>
+                  onChange={setVoteAmount}
+                  free={rep.free ?? Math.max(rep.score - rep.bonded, 0)}
+                />
                 <button
                   className="primary"
-                  disabled={busy}
+                  disabled={busy || !voteAmount || (votePreview ? votePreview.overBudget : false)}
                   onClick={() => run("Thumbs up", () => boost(contracts, tokenId, voteAmount))}
                 >
                   {busy === "Thumbs up" ? "…" : "👍 Rate"}

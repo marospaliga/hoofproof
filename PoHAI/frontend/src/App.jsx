@@ -288,6 +288,7 @@ export default function App() {
             rep={rep}
             onBack={() => setSelectedCid(null)}
             refresh={refresh}
+            onRep={setRep}
             notify={notify}
           />
         ) : view === "docs" ? (
