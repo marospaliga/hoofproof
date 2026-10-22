@@ -75,9 +75,9 @@ CowRating.setWiring(CowNFT, Attestation)
 ```bash
 npm install
 npm install --prefix frontend
-npm test                 # 117 tests: score math, caps, staking, disputes, lifecycle,
+npm test                 # 129 tests: score math, caps, staking, disputes, lifecycle,
                          # rating-spend votes, sweat equity, pool, council,
-                         # causes + cycle credit, beta clock
+                         # causes + cycle credit, beta clock, curriculum
 
 npm run dev              # one command: hardhat node + agora server + vite dev server
 # in a second terminal, the first time only:
@@ -182,6 +182,34 @@ npm run deploy:amoy
 
 `.env.example` shows the variables for testnet deploys.
 
+## The academy (the course)
+
+The zero-start on-ramp: every account begins with **0 Stasis** and earns its
+way in. Seven lessons, each paying 100 Stasis on a pass, so the whole course
+pays 700 — enough to cover a labour-claim bond and buy a first vote. The
+`certified` badge is a mark of skill; it never gates an action.
+
+Each lesson is **one markdown file** in `academy/lessons/`, and that file
+holds both the prose and the quiz. There is no second copy of the questions
+anywhere: the server parses them out of the file (`server/curriculum.js`),
+serves the prose *without* the quiz block, and grades the parsed questions. A
+lesson and its answer key cannot drift apart.
+
+The answer key never reaches the browser. The quiz is served as options with
+no answer index, and the options are rotated deterministically per question,
+so the right slot is not always the same one. Grading happens on the server; a
+pass comes back as an EIP-712 `Completed(lessonId, account)` signature, which
+the contract checks against the grader key — a forged completion is impossible
+without that key.
+
+The contract pins the **hash of each lesson file**, so the curriculum is
+versioned and auditable on-chain. Editing a lesson changes its hash and the
+pin goes stale: the app says so on the lesson itself, and the owner re-pins.
+
+```bash
+npm run pin-lessons    # write the current lesson hashes on-chain
+```
+
 ## Key rules (education, not code features)
 
 These are the design's spine; every contract enforces a slice of them:
@@ -197,9 +225,10 @@ These are the design's spine; every contract enforces a slice of them:
    cow's staked rating, so a cow only activates through a crowd of raters.
 5. **Commitment is real.** Pulling rating out before the lock period costs up
    to half of it. This is what makes "conviction" mean something.
-6. **Rating is fluid, not per-cow cooldowns.** Mercy of the voting-power meter
-   instead of a hard 24h lock: every account has a refilling budget, so steady
-   curators stay loud and sudden brigades starve.
+6. **Rating is fluid, not per-cow cooldowns.** Nothing stops you rating the
+   same cow twice, and there is no per-account meter to refill: a vote costs
+   rating, and you get it back if you release the vote. Steady curators stay
+   loud because they keep earning, not because the system rations anyone.
 7. **Authenticity compounds.** Ratings on a cow's images and posts are ratings
    of the cow — a well-documented project accumulates proven authenticity.
 8. **Sweat is rated, not metered.** The same attested hour pays more on a
