@@ -27,11 +27,11 @@ contract Stasis is Ownable {
     /// Floor on the gain cap so a brand-new account can bootstrap at all.
     uint256 public constant MIN_GAIN = 100;
     /// Genesis scores decay to zero over this long.
-    uint256 public constant GENESIS_LIFE = 365 days;
+    uint256 public genesisLife = 365 days;
     /// Idle accounts are immune to decay for this long first.
-    uint256 public constant IDLE_GRACE = 180 days;
+    uint256 public idleGrace = 180 days;
     /// After the grace period, decay reaches IDLE_DECAY_BPS over this window.
-    uint256 public constant IDLE_DECAY_WINDOW = 365 days;
+    uint256 public idleDecayWindow = 365 days;
     uint256 public constant IDLE_DECAY_BPS = 2_000; // up to -20%
 
     struct Genesis {
@@ -68,12 +68,14 @@ contract Stasis is Ownable {
     event VoicedTransferred(address indexed from, address indexed to, uint256 amount);
     event VoicedBurned(address indexed account, uint256 amount, bytes32 reason);
     event GenesisGranted(address indexed account, uint256 amount);
+    event DecayWindowsSet(uint256 genesisLife, uint256 idleGrace, uint256 idleDecayWindow);
 
     error NotModule();
     error InsufficientFree();
     error InsufficientBonded();
     error InsufficientVoiced();
     error ZeroAddress();
+    error ZeroAmount();
 
     modifier onlyModule() {
         if (!isModule[msg.sender]) revert NotModule();
@@ -90,7 +92,23 @@ contract Stasis is Ownable {
         emit ModuleSet(module, allowed);
     }
 
-    /// @notice Bootstrap allocation for the founding wallets. Decays over GENESIS_LIFE.
+    /// @notice Move the decay clock. A beta shortens the windows so the
+    ///         "standings fade when you disappear" rule is observable.
+    /// @dev The decay *shape* never changes: grace first, then a linear slide
+    ///      down to IDLE_DECAY_BPS. Only the ruler moves.
+    function setDecayWindows(
+        uint256 genesisLife_,
+        uint256 idleGrace_,
+        uint256 idleDecayWindow_
+    ) external onlyOwner {
+        if (genesisLife_ == 0 || idleGrace_ == 0 || idleDecayWindow_ == 0) revert ZeroAmount();
+        genesisLife = genesisLife_;
+        idleGrace = idleGrace_;
+        idleDecayWindow = idleDecayWindow_;
+        emit DecayWindowsSet(genesisLife_, idleGrace_, idleDecayWindow_);
+    }
+
+    /// @notice Bootstrap allocation for the founding wallets. Decays over genesisLife.
     function grantGenesis(address account, uint256 amount) external onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         Genesis storage g = genesisOf[account];
@@ -111,8 +129,8 @@ contract Stasis is Ownable {
         Genesis storage g = genesisOf[account];
         if (g.granted == 0) return 0;
         uint256 elapsed = block.timestamp - g.grantedAt;
-        if (elapsed >= GENESIS_LIFE) return g.granted - g.decayed;
-        uint256 totalDecay = (g.granted * elapsed) / GENESIS_LIFE;
+        if (elapsed >= genesisLife) return g.granted - g.decayed;
+        uint256 totalDecay = (g.granted * elapsed) / genesisLife;
         if (totalDecay <= g.decayed) return 0;
         return totalDecay - g.decayed;
     }
@@ -138,13 +156,13 @@ contract Stasis is Ownable {
         s -= genesisDecay;
 
         uint256 idle = _idleTime(account);
-        if (idle > IDLE_GRACE) {
-            uint256 over = idle - IDLE_GRACE;
+        if (idle > idleGrace) {
+            uint256 over = idle - idleGrace;
             uint256 decay;
-            if (over >= IDLE_DECAY_WINDOW) {
+            if (over >= idleDecayWindow) {
                 decay = (s * IDLE_DECAY_BPS) / BPS;
             } else {
-                decay = (s * IDLE_DECAY_BPS * over) / (BPS * IDLE_DECAY_WINDOW);
+                decay = (s * IDLE_DECAY_BPS * over) / (BPS * idleDecayWindow);
             }
             if (decay > s) decay = s;
             s -= decay;
@@ -190,13 +208,13 @@ contract Stasis is Ownable {
             }
 
             uint256 idle = _idleTime(account);
-            if (idle > IDLE_GRACE) {
-                uint256 over = idle - IDLE_GRACE;
+            if (idle > idleGrace) {
+                uint256 over = idle - idleGrace;
                 uint256 decay;
-                if (over >= IDLE_DECAY_WINDOW) {
+                if (over >= idleDecayWindow) {
                     decay = (s * IDLE_DECAY_BPS) / BPS;
                 } else {
-                    decay = (s * IDLE_DECAY_BPS * over) / (BPS * IDLE_DECAY_WINDOW);
+                    decay = (s * IDLE_DECAY_BPS * over) / (BPS * idleDecayWindow);
                 }
                 if (decay > s) decay = s;
                 s -= decay;

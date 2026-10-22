@@ -212,6 +212,27 @@ contract CowRating is Ownable, ITransferValidator {
     uint256 public totalLaborHours;
     uint256 public selfSustainingCount;
 
+    // ---- the clock -------------------------------------------------------
+    /// @notice Every progression deadline in one bundle.
+    /// @dev The chain always enforces the real thing; these are just the
+    ///      numbers it compares against. A beta shortens them so the whole
+    ///      lifecycle — conviction, need periods, dormancy, corroboration —
+    ///      fits in a day instead of a season. Same arithmetic, shorter ruler.
+    struct Timings {
+        uint256 lockPeriod; // stake conviction window
+        uint256 needPeriod; // funding-need re-record period
+        uint256 careWindow; // protection anchor freshness (care proof)
+        uint256 laborWindow; // protection anchor freshness (labor proof)
+        uint256 needWindow; // protection anchor freshness (need proof)
+        uint256 headStartWindow; // independent corroboration window
+        uint256 laborLockPeriod; // labor commitment lock
+        uint256 tierCommit1; // conviction ramp to tier 1
+        uint256 tierCommit2; // conviction ramp to tier 2
+        uint256 momentumDecay; // activity ledger decay
+        uint256 contentDormantWindow; // thread dormancy
+        uint256 zeroStreakRequired; // periods of zero need for SelfSustaining
+    }
+
     event Staked(uint256 indexed tokenId, address indexed account, uint256 amount, uint256 totalStaked);
     event Unstaked(uint256 indexed tokenId, address indexed account, uint256 amount, uint256 returned);
     event Voted(uint256 indexed tokenId, address indexed account, uint8 kind, bytes32 cidHash, uint256 weight, uint256 newRating);
@@ -230,6 +251,7 @@ contract CowRating is Ownable, ITransferValidator {
     event HeadStartReaped(bytes32 indexed key, uint256 amount);
     event LaborCommitted(uint256 indexed tokenId, address indexed worker, uint256 amount, uint256 unlockAt);
     event ModerationSet(address indexed moderation, uint256 slashBps);
+    event TimingsSet(Timings timings);
     event ContentFlagged(uint256 indexed tokenId, bytes32 indexed key, bool hidden);
     event ContentSlashed(bytes32 indexed key, address indexed voter, uint256 amount);
     error OnlyCowNFT();
@@ -279,6 +301,33 @@ contract CowRating is Ownable, ITransferValidator {
 
     function setContentDormantWindow(uint256 window) external onlyOwner {
         contentDormantWindow = window;
+    }
+
+    /// @notice Move the whole clock at once. The beta runs the same rules on a
+    ///         shorter ruler; this is the ruler, not the rules.
+    /// @dev Every window is compared the same way as before — only the number
+    ///      it is compared against changes. Zero is rejected so a mistake
+    ///      cannot freeze a window open forever.
+    function setTimings(Timings calldata t) external onlyOwner {
+        if (
+            t.lockPeriod == 0 || t.needPeriod == 0 || t.careWindow == 0 || t.laborWindow == 0
+                || t.needWindow == 0 || t.headStartWindow == 0 || t.laborLockPeriod == 0
+                || t.tierCommit1 == 0 || t.tierCommit2 == 0 || t.momentumDecay == 0
+                || t.contentDormantWindow == 0 || t.zeroStreakRequired == 0
+        ) revert ZeroAmount();
+        lockPeriod = t.lockPeriod;
+        needPeriod = t.needPeriod;
+        careWindow = t.careWindow;
+        laborWindow = t.laborWindow;
+        needWindow = t.needWindow;
+        headStartWindow = t.headStartWindow;
+        laborLockPeriod = t.laborLockPeriod;
+        tierCommit1 = t.tierCommit1;
+        tierCommit2 = t.tierCommit2;
+        momentumDecay = t.momentumDecay;
+        contentDormantWindow = t.contentDormantWindow;
+        zeroStreakRequired = t.zeroStreakRequired;
+        emit TimingsSet(t);
     }
 
     /// @notice Tune the labor conviction window and the moderation slash cap.

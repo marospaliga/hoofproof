@@ -54,6 +54,11 @@ export default {
       "type": "error"
     },
     {
+      "inputs": [],
+      "name": "ZeroAmount",
+      "type": "error"
+    },
+    {
       "anonymous": false,
       "inputs": [
         {
@@ -70,6 +75,31 @@ export default {
         }
       ],
       "name": "Bonded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "genesisLife",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "idleGrace",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "idleDecayWindow",
+          "type": "uint256"
+        }
+      ],
+      "name": "DecayWindowsSet",
       "type": "event"
     },
     {
@@ -289,46 +319,7 @@ export default {
     },
     {
       "inputs": [],
-      "name": "GENESIS_LIFE",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "IDLE_DECAY_BPS",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "IDLE_DECAY_WINDOW",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "IDLE_GRACE",
       "outputs": [
         {
           "internalType": "uint256",
@@ -499,6 +490,19 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "genesisLife",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -564,6 +568,32 @@ export default {
           "internalType": "bool",
           "name": "",
           "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "idleDecayWindow",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "idleGrace",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -663,6 +693,29 @@ export default {
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "genesisLife_",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "idleGrace_",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "idleDecayWindow_",
+          "type": "uint256"
+        }
+      ],
+      "name": "setDecayWindows",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -2379,6 +2432,81 @@ export default {
       "anonymous": false,
       "inputs": [
         {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "lockPeriod",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "needPeriod",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "careWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "laborWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "needWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "headStartWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "laborLockPeriod",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "tierCommit1",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "tierCommit2",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "momentumDecay",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "contentDormantWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "zeroStreakRequired",
+              "type": "uint256"
+            }
+          ],
+          "indexed": false,
+          "internalType": "struct CowRating.Timings",
+          "name": "timings",
+          "type": "tuple"
+        }
+      ],
+      "name": "TimingsSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
           "indexed": true,
           "internalType": "uint256",
           "name": "tokenId",
@@ -3998,6 +4126,81 @@ export default {
         }
       ],
       "name": "setRatingPolicy",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "lockPeriod",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "needPeriod",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "careWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "laborWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "needWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "headStartWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "laborLockPeriod",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "tierCommit1",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "tierCommit2",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "momentumDecay",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "contentDormantWindow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "zeroStreakRequired",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct CowRating.Timings",
+          "name": "t",
+          "type": "tuple"
+        }
+      ],
+      "name": "setTimings",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
