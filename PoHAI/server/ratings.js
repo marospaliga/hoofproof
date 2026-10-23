@@ -75,7 +75,7 @@ async function clock() {
   const [
     lockPeriod, needPeriod, careWindow, laborWindow, needWindow, headStartWindow,
     laborLockPeriod, tierCommit1, tierCommit2, momentumDecay, contentDormantWindow,
-    zeroStreakRequired, genesisLife, idleGrace, idleDecayWindow, cyclePeriod,
+    genesisLife, idleGrace, idleDecayWindow, cyclePeriod, carePeriod,
     gasRebatePeriod, fastPathDelay, challengeWindow, minDuration, maxDuration,
   ] = await Promise.all([
     at("CowRating", "lockPeriod"),
@@ -89,11 +89,11 @@ async function clock() {
     at("CowRating", "tierCommit2"),
     at("CowRating", "momentumDecay"),
     at("CowRating", "contentDormantWindow"),
-    at("CowRating", "zeroStreakRequired"),
     at("Stasis", "genesisLife"),
     at("Stasis", "idleGrace"),
     at("Stasis", "idleDecayWindow"),
     at("GeneralPool", "cyclePeriod"),
+    at("GeneralPool", "carePeriod"),
     at("GeneralPool", "gasRebatePeriod"),
     at("Moderation", "fastPathDelay"),
     at("Moderation", "challengeWindow"),
@@ -103,7 +103,7 @@ async function clock() {
   const windows = {
     lockPeriod, needPeriod, careWindow, laborWindow, needWindow, headStartWindow,
     laborLockPeriod, tierCommit1, tierCommit2, momentumDecay, contentDormantWindow,
-    zeroStreakRequired, genesisLife, idleGrace, idleDecayWindow, cyclePeriod,
+    genesisLife, idleGrace, idleDecayWindow, cyclePeriod, carePeriod,
     gasRebatePeriod, fastPathDelay, challengeWindow, minDuration, maxDuration,
   };
   return { windows, profile: identifyProfile(windows) };
@@ -549,10 +549,10 @@ async function poolStats() {
     backing: num(pm.backing),
     rating: num(pm.rating),
     stasisTotal: num(pm.stasisTotal),
-    activeCows: num(pm.activeCows),
+    backedCows: num(pm.backedCows),
     laborHours: num(prot.laborHours),
     careQuorums: num(prot.careQuorums),
-    solved: num(prot.solved),
+    covered: num(prot.covered),
     totalScore,
     totalVoiced,
     voicedSharePct: totalScore > 0 ? Math.round((totalVoiced * 100) / totalScore) : 0,

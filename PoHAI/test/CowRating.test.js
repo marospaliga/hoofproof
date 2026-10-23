@@ -4,41 +4,39 @@ const { loadFixture, time } = require("@nomicfoundation/hardhat-toolbox/network-
 const { withFundedRaters, mint, GENESIS } = require("./fixtures");
 
 const DAY = 86_400;
-const ACTIVATION = 1_000n;
 const PIGS = ethers.encodeBytes32String("pigs");
-
-const Status = { Inert: 0n, Active: 1n, SelfSustaining: 2n, Memorial: 3n };
 
 describe("CowRating", function () {
   async function fixture() {
     return withFundedRaters();
   }
 
-  describe("staking and activation", function () {
-    it("stops one account from activating a cow alone", async function () {
+  describe("staking and backing", function () {
+    it("lets one account back a cow with all its free rating", async function () {
       const { cowRating, stasis, alice, tokenId } = await loadFixture(fixture);
 
-      // Concentration cap = 20% of the activation threshold, so a single
-      // account can never be the one that flips a cow to Active.
-      await expect(
-        cowRating.connect(alice).stakeRating(tokenId, ACTIVATION)
-      ).to.be.revertedWithCustomError(cowRating, "ConcentrationCap");
+      // There is no concentration cap: if the community wants one account to
+      // back a cow, that is its choice. Bonding still prevents spending rating
+      // the account does not have.
+      await cowRating.connect(alice).stakeRating(tokenId, 5_000);
 
-      expect(await cowRating.totalStaked(tokenId)).to.equal(0);
-      expect(await stasis.bonded(alice.address)).to.equal(0);
+      expect(await cowRating.totalStaked(tokenId)).to.equal(5_000);
+      expect(await stasis.bonded(alice.address)).to.equal(5_000);
     });
 
-    it("activates only once several distinct raters back it", async function () {
-      const { cowNFT, cowRating, raters, tokenId } = await loadFixture(fixture);
+    it("counts a cow as backed on the first stake or vote, once", async function () {
+      const { cowRating, raters, alice, tokenId } = await loadFixture(fixture);
 
-      for (const rater of raters.slice(0, 4)) {
+      expect(await cowRating.backedCowCount()).to.equal(0);
+      await cowRating.connect(alice).stakeRating(tokenId, 200);
+      expect(await cowRating.backedCowCount()).to.equal(1);
+      expect(await cowRating.cowBacked(tokenId)).to.equal(true);
+
+      for (const rater of raters.slice(1, 4)) {
         await cowRating.connect(rater).stakeRating(tokenId, 200);
-        expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Inert);
       }
-
-      await cowRating.connect(raters[4]).stakeRating(tokenId, 200);
-      expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
-      expect(await cowRating.totalStaked(tokenId)).to.equal(ACTIVATION);
+      // More backing on the same cow does not inflate the count.
+      expect(await cowRating.backedCowCount()).to.equal(1);
     });
 
     it("requires free score to stake", async function () {
@@ -146,21 +144,16 @@ describe("CowRating", function () {
       expect(await cowRating.activityPoints(alice.address)).to.equal(0);
     });
 
-    it("counts conviction-weighted stakes toward activation", async function () {
-      const { cowNFT, cowRating, raters, alice, tokenId } = await loadFixture(fixture);
+    it("accrues conviction weight without gating anything", async function () {
+      const { cowRating, alice, tokenId } = await loadFixture(fixture);
 
-      // A flexible stake counts at 1.00x, so it does not move the threshold.
+      // A flexible stake counts at 1.00x and is visible in the conviction
+      // ledger, but there is no threshold to cross and no rank to reach.
       await cowRating.connect(alice).stakeRating(tokenId, 200);
       expect(await cowRating.totalWeightedStaked(tokenId)).to.equal(200);
 
-      for (const rater of raters.slice(1, 4)) {
-        await cowRating.connect(rater).stakeRating(tokenId, 200);
-      }
-      // 800 weighted → still Inert below the 1000 threshold.
-      expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Inert);
-
-      await cowRating.connect(raters[4]).stakeRating(tokenId, 200);
-      expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
+      await cowRating.connect(alice).stakeRating(tokenId, 800);
+      expect(await cowRating.totalWeightedStaked(tokenId)).to.equal(1_000);
       expect(await cowRating.totalStaked(tokenId)).to.equal(1_000);
     });
   });

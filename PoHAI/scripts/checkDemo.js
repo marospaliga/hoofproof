@@ -71,14 +71,14 @@ async function main() {
   );
 
   // ---- protection layer: anchors, labor, care quorums, voice
-  const [laborHours, careQuorums, solved] = await generalPool.protectionMetrics();
+  const [laborHours, careQuorums, covered] = await generalPool.protectionMetrics();
   const [anchorHans, anchorBlossom] = await Promise.all([
     cowRating.protectionAnchorLive(4),
     cowRating.protectionAnchorLive(1),
   ]);
   const r1Locked = await cowRating.voiceLocked(r1.address);
   console.log(
-    `protection: laborHours=${laborHours} careQuorums=${careQuorums} solved=${solved} ` +
+    `protection: laborHours=${laborHours} careQuorums=${careQuorums} covered=${covered} ` +
       `anchor[Hans]=${anchorHans} anchor[Blossom]=${anchorBlossom} ` +
       `voice[r1]=${r1Locked} rating spent`
   );
@@ -106,12 +106,14 @@ async function main() {
   const next = Number(await cowNFT.nextTokenId());
   console.log(`cows on chain: ${next - 1}`);
   for (let id = 1; id < next; id++) {
-    const [status, owner, rating] = await Promise.all([
-      cowNFT.statusOf(id),
+    const [verified, deceased, owner, rating] = await Promise.all([
+      cowNFT.isVerified(id),
+      cowNFT.isDeceased(id),
       cowNFT.ownerOf(id),
       cowRating.ratingOf(id),
     ]);
-    let note = `  #${id} ${["Inert", "Active", "SelfSustaining", "Memorial", "Retired"][Number(status)]} rating=${Number(rating)} owner=${owner.slice(0, 8)}…`;
+    const state = deceased ? "Memorial" : verified ? "Living real" : "Project";
+    let note = `  #${id} ${state} rating=${Number(rating)} owner=${owner.slice(0, 8)}…`;
     if (id === 4) {
       // Hans — has attested funding need + a 2-rater herd with the +5% bonus.
       const [fund, backing] = await Promise.all([cowRating.funding(id), cowRating.totalStaked(id)]);

@@ -63,7 +63,7 @@ contract HerdCouncil is Ownable {
     function memberVoteWeight(address account, uint256 herdId) public view returns (uint256 weight) {
         uint256 count = cowNFT.nextTokenId();
         for (uint256 i = 1; i < count; i++) {
-            (,, uint256 cowHerd, ) = cowNFT.cows(i);
+            (,,, uint256 cowHerd, ) = cowNFT.cows(i);
             if (cowHerd != herdId) continue;
             if (cowNFT.ownerOf(i) != account) continue;
             weight += cowRating.ratingOf(i);
@@ -73,7 +73,7 @@ contract HerdCouncil is Ownable {
     function isMember(address account, uint256 herdId) public view returns (bool) {
         uint256 count = cowNFT.nextTokenId();
         for (uint256 i = 1; i < count; i++) {
-            (,, uint256 cowHerd, ) = cowNFT.cows(i);
+            (,,, uint256 cowHerd, ) = cowNFT.cows(i);
             if (cowHerd == herdId && cowNFT.ownerOf(i) == account) return true;
         }
         return false;

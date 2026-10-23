@@ -44,7 +44,6 @@ async function acctStats(addr) {
 
 async function cowRows() {
   const next = Number(await C.cowNFT.nextTokenId());
-  const threshold = Number(await C.cowRating.activationThreshold());
   let names = {};
   try {
     const cows = await (await fetch("http://localhost:3001/api/cows")).json();
@@ -52,20 +51,19 @@ async function cowRows() {
   } catch { /* agora down — fall back to ids */ }
   const rows = [];
   for (let id = 1; id < next; id++) {
-    const [status, rating, backing, anchor, mine, weighted] = await Promise.all([
-      C.cowNFT.statusOf(id),
+    const [verified, deceased, rating, backing, anchor, mine] = await Promise.all([
+      C.cowNFT.isVerified(id),
+      C.cowNFT.isDeceased(id),
       C.cowRating.cowRating(id),
       C.cowRating.totalStaked(id),
       C.cowRating.protectionAnchorLive(id).catch(() => false),
       C.cowRating.stakeOf(id, wallets[me].address).catch(() => 0n),
-      C.cowRating.totalWeightedStaked(id).catch(() => 0n),
     ]);
-    rows.push({ id, name: names[id] || `Cow #${id}`, status: Number(status), rating: Number(rating), backing: Number(backing), anchor, myStake: Number(mine), weighted: Number(weighted), threshold });
+    const state = deceased ? "Memorial" : verified ? "Living real" : "Project";
+    rows.push({ id, name: names[id] || `Cow #${id}`, state, rating: Number(rating), backing: Number(backing), anchor, myStake: Number(mine) });
   }
   return rows;
 }
-
-const STATUS = ["Inert", "Active", "SelfSustaining", "Memorial"];
 
 async function renderField() {
   const stats = await Promise.all(
@@ -84,23 +82,23 @@ async function renderField() {
       }
     })
   );
-  const [totalRating, backing, activeCows, labor, care, solved, totalScore] = await Promise.all([
+  const [totalRating, backing, backedCows, labor, care, covered, totalScore] = await Promise.all([
     C.cowRating.totalRatingPoints().then(Number).catch(() => 0),
     C.cowRating.totalBacking().then(Number).catch(() => 0),
-    C.cowRating.activeCowCount().then(Number).catch(() => 0),
+    C.cowRating.backedCowCount().then(Number).catch(() => 0),
     C.cowRating.totalLaborHours().then(Number).catch(() => 0),
     C.cowRating.careQuorumCount().then(Number).catch(() => 0),
-    C.cowRating.selfSustainingCount().then(Number).catch(() => 0),
+    C.cowRating.cowsEverCovered().then(Number).catch(() => 0),
     C.stasis.totalScore().then(Number).catch(() => 0),
   ]);
   $("fieldtotals").textContent =
-    `field score ${totalScore} · rating ${totalRating} · backing ${backing} · active ${activeCows} · labor ${labor}h · care quorums ${care} · graduated ${solved}`;
+    `field score ${totalScore} · rating ${totalRating} · backing ${backing} · backed ${backedCows} · labor ${labor}h · care quorums ${care} · covered ${covered}`;
 
   // Overall rating-pool indicator (same figures the main app's gauge shows).
   const pool = $("pool");
   const cells = [
-    ["active", activeCows], ["rating", totalRating], ["backing", backing],
-    ["stasis", totalScore], ["labor", `${labor}h`], ["quorums", care], ["graduated", solved],
+    ["backed", backedCows], ["rating", totalRating], ["backing", backing],
+    ["stasis", totalScore], ["labor", `${labor}h`], ["quorums", care], ["covered", covered],
   ];
   pool.innerHTML =
     `<span style="color:#3fb950">● pool</span>` +
@@ -151,8 +149,8 @@ async function refresh() {
     for (const r of rows) {
       const tr = document.createElement("tr");
       tr.innerHTML =
-        `<td>${r.id}</td><td>${r.name}</td><td>${STATUS[r.status]}</td>` +
-        `<td>${r.rating}</td><td title="Only stakes activate — votes never flip status">${r.weighted}/${r.threshold}</td><td>${r.backing}</td><td>${r.anchor ? "🟢" : "⚪"}</td><td>${r.myStake}</td><td></td>`;
+        `<td>${r.id}</td><td>${r.name}</td><td>${r.state}</td>` +
+        `<td>${r.rating}</td><td>${r.backing}</td><td>${r.anchor ? "🟢" : "⚪"}</td><td>${r.myStake}</td><td></td>`;
       const act = tr.lastChild;
       const mk = (label, fn, primary) => {
         const b = document.createElement("button");
@@ -256,12 +254,10 @@ $("sc-cold").onclick = () => wrap("scenario cold-start", async () => {
     await submit(() => c.cowNFT.mintCow("ipfs://sim-cold"));
     return id;
   });
-  log(`minted cow #${minter}; 5 raters stake 200 each…`);
-  for (const i of [1, 2, 3, 4, 5]) {
-    await asUser(i, async (c) => submit(() => c.cowRating.stakeRating(minter, 200)));
-  }
-  const st = await asUser(0, async (c) => Number(await c.cowNFT.statusOf(minter)));
-  log(`cow #${minter} status → ${STATUS[st]} (expect Active)`);
+  log(`minted cow #${minter}; one rater backs it with 200…`);
+  await asUser(1, async (c) => submit(() => c.cowRating.stakeRating(minter, 200)));
+  const backed = await asUser(0, async (c) => await c.cowRating.cowBacked(minter));
+  log(`cow #${minter} is backed immediately (no activation threshold): ${backed}`);
 });
 
 $("sc-spend").onclick = () => wrap("scenario voice spend", async () => {
@@ -493,7 +489,7 @@ $("live-start").onclick = () => {
       ]);
       live.history.push(content);
       if (live.history.length > 40) live.history.shift();
-      const note = cowAfter < cowBefore ? " (cow rating fell — a slash or an unvote, not a vote)" : "";
+      const note = cowAfter < cowBefore ? " (cow rating fell — a slash, not a vote)" : "";
       $("live-status").textContent = `post ${content} · cow #${live.tokenId} ${cowAfter}${note} · ${live.history.length} bot votes`;
       $("live-spark").textContent = spark(live.history);
       log(`bot #${bot} voted → post ${content}, cow ${cowAfter}${note}`);

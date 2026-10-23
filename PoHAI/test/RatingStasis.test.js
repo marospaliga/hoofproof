@@ -107,8 +107,8 @@ describe("rating = voiced Stasis (unification)", function () {
   });
 
   describe("min-bond edge", function () {
-    it("a fully-voiced account must unvote before bonding a claim", async function () {
-      const { cowRating, attestation, stasis, owner, stranger, tokenId } = await loadFixture(fixture);
+    it("a fully-voiced account cannot bond a claim — the vote is permanent", async function () {
+      const { cowRating, attestation, stasis, stranger, tokenId } = await loadFixture(fixture);
       await grantGenesis(stasis, [stranger], 100);
 
       // Voice the whole 100-Stasis score with two amounts.
@@ -121,9 +121,16 @@ describe("rating = voiced Stasis (unification)", function () {
         attestation.connect(stranger).attest(tokenId, 1, "ipfs://care", 0, ZERO, 100)
       ).to.be.revertedWithCustomError(stasis, "InsufficientFree");
 
-      // Releasing the voice makes room.
+      // There is no unvote: the rating is spent. New activity is the only
+      // way to earn room again.
       const key = await cowRating.cowKeyOf(tokenId);
-      await cowRating.connect(stranger).unvote(key);
+      await expect(cowRating.connect(stranger).releaseLabor(key)).to.be.revertedWithCustomError(
+        cowRating,
+        "NotLaborLock"
+      );
+      expect(await stasis.freeScore(stranger.address)).to.equal(0);
+
+      await grantGenesis(stasis, [stranger], 100);
       expect(await stasis.freeScore(stranger.address)).to.equal(100);
       await expect(
         attestation.connect(stranger).attest(tokenId, 1, "ipfs://care", 0, ZERO, 100)
@@ -182,13 +189,13 @@ describe("rating = voiced Stasis (unification)", function () {
       const [keys] = await cowRating.voterLocks(alice.address);
       const laborKey = keys[0];
 
-      await expect(cowRating.connect(alice).unvote(laborKey)).to.be.revertedWithCustomError(
+      await expect(cowRating.connect(alice).releaseLabor(laborKey)).to.be.revertedWithCustomError(
         cowRating,
         "LockedUntil"
       );
 
       await time.increase(31 * DAY);
-      await cowRating.connect(alice).unvote(laborKey);
+      await cowRating.connect(alice).releaseLabor(laborKey);
       expect(await cowRating.cowRating(tokenId)).to.equal(before);
     });
   });
@@ -210,9 +217,9 @@ describe("rating = voiced Stasis (unification)", function () {
       await moderation.execute(id);
       expect(await cowRating.contentHidden(key)).to.equal(true);
 
-      await expect(cowRating.connect(bob).unvote(key)).to.be.revertedWithCustomError(
+      await expect(cowRating.connect(bob).releaseLabor(key)).to.be.revertedWithCustomError(
         cowRating,
-        "ContentHidden"
+        "NotLaborLock"
       );
 
       await cowRating.slashContent(key, 10);

@@ -221,10 +221,9 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px
 .mt4 { margin-top: 4px; }
 .loading { padding: 60px; text-align: center; color: var(--muted); }
 
-.status-Inert { background: #e6dfcd; color: #5c5545; }
-.status-Active { background: #e3efdb; color: #3d6430; }
-.status-SelfSustaining { background: #f7ecd4; color: var(--accent-2); }
-.status-Memorial { background: #f3dedb; color: var(--danger); }
+.status-project { background: #e6dfcd; color: #5c5545; }
+.status-living { background: #e3efdb; color: #3d6430; }
+.status-memorial { background: #f3dedb; color: var(--danger); }
 
 /* ---- Phase C: evidence gallery, meters, profile ------------------------ */
 

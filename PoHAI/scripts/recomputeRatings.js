@@ -13,8 +13,8 @@ async function main() {
   const rating = await ethers.getContractAt("CowRating", d.cowRating);
   const pool = await ethers.getContractAt("GeneralPool", d.generalPool);
 
-  const [labor, care, solved] = await pool.protectionMetrics();
-  console.log(`field: laborHours=${labor} careQuorums=${care} solved=${solved} totalRating=${await rating.totalRatingPoints()}`);
+  const [labor, care, covered] = await pool.protectionMetrics();
+  console.log(`field: laborHours=${labor} careQuorums=${care} covered=${covered} totalRating=${await rating.totalRatingPoints()}`);
 
   const next = Number(await (await ethers.getContractAt("CowNFT", d.cowNFT)).nextTokenId());
   const ids = tokenArg ? [Number(tokenArg)] : Array.from({ length: next - 1 }, (_, i) => i + 1);

@@ -36,7 +36,6 @@ const production = {
     tierCommit2: 180 * DAY,
     momentumDecay: 90 * DAY,
     contentDormantWindow: 180 * DAY,
-    zeroStreakRequired: 3,
   },
   stasis: {
     genesisLife: 365 * DAY,
@@ -46,6 +45,7 @@ const production = {
   generalPool: {
     cyclePeriod: 6 * HOUR,
     gasRebatePeriod: 7 * DAY,
+    carePeriod: 7 * DAY,
   },
   moderation: {
     fastPathDelay: 48 * HOUR,
@@ -73,7 +73,6 @@ const beta = {
     tierCommit2: 6 * DAY, //      180d
     momentumDecay: 3 * DAY, //     90d
     contentDormantWindow: 6 * DAY, // 180d
-    zeroStreakRequired: 3, //     a count, not a duration — unchanged
   },
   stasis: {
     genesisLife: 12 * DAY + 4 * HOUR, // 365d
@@ -83,6 +82,7 @@ const beta = {
   generalPool: {
     cyclePeriod: 12 * MINUTE, //  6h
     gasRebatePeriod: 5 * HOUR + 36 * MINUTE, // 7d
+    carePeriod: 5 * HOUR + 36 * MINUTE, // 7d
   },
   moderation: {
     fastPathDelay: 1 * HOUR + 36 * MINUTE, // 48h
@@ -104,6 +104,7 @@ function flatWindows(profile) {
     ...profile.stasis,
     cyclePeriod: profile.generalPool.cyclePeriod,
     gasRebatePeriod: profile.generalPool.gasRebatePeriod,
+    carePeriod: profile.generalPool.carePeriod,
     fastPathDelay: profile.moderation.fastPathDelay,
     challengeWindow: profile.moderation.challengeWindow,
     minDuration: profile.herdCouncil.minDuration,

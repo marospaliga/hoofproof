@@ -3,7 +3,7 @@ import Name from "./Name.jsx";
 import { RatingDiamonds } from "./Rating.jsx";
 
 function CowCard({ cow, onOpen }) {
-  const status = `status-${cow.statusName}`;
+  const status = `status-${cow.stateKey}`;
   return (
     <div className="cow-card" onClick={() => onOpen(cow)}>
       <div className="face">{cow.image || "🐄"}</div>

@@ -24,13 +24,13 @@ export default function MintModal({ contracts, account, onClose, onMinted, notif
         image: form.image,
       });
 
-      // 2. The chain record is born Inert — no weight until raters back it.
+      // 2. The chain record is live at once — no activation threshold.
       const tokenId = await mintCow(contracts, record.cid, account);
 
       // 3. Link chain and off-chain records.
       await api.linkToken(record.cid, tokenId, account);
 
-      notify(`Cow #${tokenId} minted. Now it needs raters to become Active.`);
+      notify(`Cow #${tokenId} minted. Back it with rating, then prove the hoof with care.`);
       onMinted(record.cid);
     } catch (err) {
       notify(friendlyError(err), "error");
@@ -44,8 +44,9 @@ export default function MintModal({ contracts, account, onClose, onMinted, notif
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2 style={{ marginTop: 0 }}>Mint a cow</h2>
         <p className="muted" style={{ fontSize: 13 }}>
-          Anyone may mint. The record is born <em>Inert</em> — it only becomes
-          <em> Active</em> when independent raters commit their reputation to it.
+          Anyone may mint. The record is live at once. The first executed care,
+          revenue, sale or death claim marks it as a real animal; until then it
+          is a project.
         </p>
         <form onSubmit={submit}>
           <label>Name *</label>

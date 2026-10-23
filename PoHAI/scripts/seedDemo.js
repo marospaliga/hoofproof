@@ -19,15 +19,15 @@ const ZERO = ethers.ZeroAddress;
 const GENERAL = ethers.encodeBytes32String("general");
 
 const COWS = [
-  { name: "Blossom", breed: "Jersey", age: 4, image: "🐄", plan: "active",
+  { name: "Blossom", breed: "Jersey", age: 4, image: "🐄", plan: "backed",
     story: "The herd's milk queen — calm, curious, and absurdly good at opening gates." },
-  { name: "Daisy", breed: "Holstein", age: 6, image: "🐄", plan: "active",
+  { name: "Daisy", breed: "Holstein", age: 6, image: "🐄", plan: "backed",
     story: "Classic black-and-white. Sired the last two calves everyone talks about." },
-  { name: "Buttercup", breed: "Guernsey", age: 3, image: "🐂", plan: "half",
+  { name: "Buttercup", breed: "Guernsey", age: 3, image: "🐂", plan: "light",
     story: "Golden butterfat. Still waiting for enough raters to call her home." },
   { name: "Hans", breed: "Brown Swiss", age: 7, image: "🐂", plan: "herd", need: 500,
     story: "Old, soft-spoken, and the herd's literal anchor. Currently needs 500/mo for hillside grazing lease." },
-  { name: "Klara", breed: "Simmental", age: 5, image: "🐄", plan: "half",
+  { name: "Klara", breed: "Simmental", age: 5, image: "🐄", plan: "light",
     story: "Moves like a draft horse, eats like a teenager." },
   { name: "Greta", breed: "Angus", age: 2, image: "🐂", plan: "plain",
     story: "Fresh arrival. No rating, no noise — a blank ledger." },
@@ -194,8 +194,18 @@ async function main() {
       await attestation.connect(r).attest(1, 6, "ipfs://labor-blossom", 40, r3.address, 100);
     }
 
+    // Proof of hoof: r4 + r6 attest real care on the flagship cow and on Hans.
+    // The first executed Care claim turns a project into a *living real* record;
+    // care money can only be allocated to (and redeemed by) such a cow.
+    for (const tokenId of [1, 4]) {
+      for (const r of [r2, r4]) {
+        await attestation.connect(r).attest(tokenId, 1, `ipfs://care-${tokenId}`, 0, ZERO, 100);
+      }
+    }
+
     // Seed the GeneralPool treasury and earmark care allowance for Hans.
-    // Hans is Active with an executed funding-need record: anchor live, proof cited.
+    // Hans is a living real cow with an executed funding-need record: anchor
+    // live, proof cited.
     await deployer.sendTransaction({ to: generalPool.getAddress(), value: ethers.parseEther("0.5") });
     await generalPool.allocateCare(4, ethers.parseEther("0.25"), hansNeedClaim);
 
@@ -337,24 +347,22 @@ async function guardedBoost(stasis, cowRating, account, tokenId) {
 async function applyPlan(plan, tokenId, c) {
   const { cowNFT, cowRating, attestation, raters, r6, buyer, r1, deployer } = c;
 
-  // Zero-start budget: every account holds 700 Stasis earned from the course.
-  // A stake *bonds* that score and the concentration cap (20% of the 1000
-  // activation threshold) limits each account to 200 per cow — so activation
-  // takes 5 distinct stakers, and each rater can only back 3 cows at a time.
-  // Earned score means conviction must be chosen, not sprayed. Stakers are
-  // drawn round-robin (see `pickStakers`) so no account over-commits.
-  if (plan === "active" || plan === "herd") {
+  // Zero-start budget: every account holds ~700 Stasis earned from the course.
+  // A stake bonds that score, so conviction must be chosen, not sprayed; the
+  // stakers are drawn round-robin (see `pickStakers`) so no account over-commits.
+  // There is no concentration cap — one account *may* back a cow alone.
+  if (plan === "backed" || plan === "herd") {
     for (const r of c.pickStakers(5)) {
       await cowRating.connect(r).stakeRating(tokenId, 200);
     }
-  } else if (plan === "half") {
-    // Two stakers with free budgets: 400/1000 — visibly progressing.
+  } else if (plan === "light") {
+    // Two stakers: visibly backed, but not the flagship.
     for (const r of c.pickStakers(2)) {
       await cowRating.connect(r).stakeRating(tokenId, 200);
     }
   } else if (plan === "memorial") {
-    // No stakes: a death claim from three bonded attestors freezes the
-    // record. The bond comes back when the claim executes.
+    // A death claim from three bonded attestors records the fact and marks the
+    // record as a memorial. It does not freeze it. The bonds return on execute.
     for (const r of raters.slice(0, 3)) {
       await attestation.connect(r).attest(tokenId, 3, "ipfs://death-evidence", 0, ZERO, 100);
     }

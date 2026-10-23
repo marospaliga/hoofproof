@@ -1,6 +1,6 @@
-// Rating drawn as five diamonds — one per fifth of the cow activation
-// threshold (1000 rating points under the default policy). A fully-backed cow
-// shines ◆◆◆◆◆; an unrated one shows ◇◇◇◇◇. Shared by the herd list, the cow
+// Rating drawn as five diamonds — one per fifth of 1000 rating points. This is
+// a visual scale, not a gate: there is no activation threshold to cross.
+// A fully-backed cow shines ◆◆◆◆◆; an unrated one shows ◇◇◇◇◇. Shared by the herd list, the cow
 // detail rail and the profile so a rating looks the same everywhere.
 export const RATING_THRESHOLD = 1000;
 

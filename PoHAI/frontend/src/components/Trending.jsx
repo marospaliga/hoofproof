@@ -35,7 +35,7 @@ export default function Trending({ cows, onOpen }) {
           <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
             <strong>
               {r.cow.image || "🐄"} {r.cow.name}{" "}
-              <span className={`badge status-${r.cow.statusName}`}>{r.cow.statusName}</span>
+              <span className={`badge status-${r.cow.stateKey}`}>{r.cow.statusName}</span>
             </strong>
             <span className="muted" style={{ fontSize: 12 }}>
               recent +{r.recent} · rating {r.rating} · backing {r.backing}

@@ -1,6 +1,6 @@
 import { BrowserProvider, Contract, encodeBytes32String, Interface, keccak256, toUtf8Bytes, ZeroAddress } from "ethers";
 import abis from "../abis.js";
-import { DEFAULT_CONTRACTS, STATUS_NAMES } from "../config.js";
+import { DEFAULT_CONTRACTS, STATE_NAMES } from "../config.js";
 
 export class ChainError extends Error {}
 
@@ -80,7 +80,7 @@ export async function readTimings(contracts) {
   const { cowRating, stasis, generalPool, moderation, herdCouncil } = contracts;
   const [lockPeriod, needPeriod, careWindow, laborWindow, needWindow, headStartWindow,
     laborLockPeriod, tierCommit1, tierCommit2, momentumDecay, contentDormantWindow,
-    zeroStreakRequired, idleGrace, cyclePeriod, gasRebatePeriod, fastPathDelay,
+    idleGrace, cyclePeriod, carePeriod, gasRebatePeriod, fastPathDelay,
     challengeWindow, minDuration, maxDuration] = await Promise.all([
     cowRating.lockPeriod(),
     cowRating.needPeriod(),
@@ -93,9 +93,9 @@ export async function readTimings(contracts) {
     cowRating.tierCommit2(),
     cowRating.momentumDecay(),
     cowRating.contentDormantWindow(),
-    cowRating.zeroStreakRequired(),
     stasis.idleGrace(),
     generalPool.cyclePeriod(),
+    generalPool.carePeriod(),
     generalPool.gasRebatePeriod(),
     moderation ? moderation.fastPathDelay() : Promise.resolve(0),
     moderation ? moderation.challengeWindow() : Promise.resolve(0),
@@ -114,9 +114,9 @@ export async function readTimings(contracts) {
     tierCommit2: Number(tierCommit2),
     momentumDecay: Number(momentumDecay),
     contentDormantWindow: Number(contentDormantWindow),
-    zeroStreakRequired: Number(zeroStreakRequired),
     idleGrace: Number(idleGrace),
     cyclePeriod: Number(cyclePeriod),
+    carePeriod: Number(carePeriod),
     gasRebatePeriod: Number(gasRebatePeriod),
     fastPathDelay: Number(fastPathDelay),
     challengeWindow: Number(challengeWindow),
@@ -155,11 +155,12 @@ export function friendlyError(err) {
   const known = {
     InsufficientFree: "You don't have enough free Stasis for that. Score is earned by steady activity; this demo seeds it to the demo accounts listed when the node starts.",
     InsufficientBonded: "You don't have that much Stasis locked as collateral.",
-    ConcentrationCap: "One account may hold at most 20% of a cow's backing — this cow needs more, different raters.",
     InvalidBoost: "That vote target isn't valid (votes may rate a cow, a photo or a post).",
     WeightTooLow: "Spend at least a little rating — a vote of zero adds nothing.",
     PeriodNotElapsed: "The funding need can only be re-recorded once per period. Wait for the current one to close.",
-    IsMemorial: "Memorial cows are frozen — no actions can be taken on them.",
+    IsDeceased: "The real cow has died — new care and funding claims are closed. Votes, stakes and transfers still work.",
+    NotLaborLock: "That lien is a vote, not a labour pledge. Votes are permanent and cannot be released.",
+    NotLivingCow: "Care money is only for a verified, living cow. A project or a memorial cannot hold or redeem it.",
     ZeroAmount: "The amount must be greater than zero.",
     InsufficientStake: "You have not staked that much on this cow.",
     NotTokenOwner: "This action requires the cow's owner.",
@@ -171,7 +172,7 @@ export function friendlyError(err) {
     NothingLocked: "You have no rating committed there yet.",
     TierMismatch: "Top-ups must keep the original conviction tier. Unstake first to switch tiers.",
     BadTier: "Unknown conviction tier (0 flexible, 1 and 2 are the longer commitments).",
-    TooManyKeys: "Reap at most 20 locks per transaction.",
+    TooManyKeys: "Slash at most 100 voters per transaction.",
     NoAnchor: "That cow has no live protection anchor (fresh Care quorum, Labor or need record) — payoffs are locked until protectors report.",
     NoProtection: "The gas rebate subsidises protectors: do protection work first (care, labor, need reports, protection-linked curation).",
     NoProof: "Cite an executed protection claim id as proof for this release.",
@@ -256,8 +257,9 @@ export function getContracts(signer, config) {
 export async function enrichCow(record, contracts) {
   const { cowNFT, cowRating, generalPool } = contracts;
   const tokenId = record.tokenId;
-  const [status, rating, backing, funding, owner, carePool, cow] = await Promise.all([
-    cowNFT.statusOf(tokenId),
+  const [verified, deceased, rating, backing, funding, owner, carePool, cow] = await Promise.all([
+    cowNFT.isVerified(tokenId),
+    cowNFT.isDeceased(tokenId),
     cowRating.ratingOf(tokenId),
     cowRating.totalStaked(tokenId),
     cowRating.funding(tokenId),
@@ -265,10 +267,14 @@ export async function enrichCow(record, contracts) {
     generalPool.carePoolOf(tokenId),
     cowNFT.cows(tokenId),
   ]);
+  const stateKey = deceased ? "memorial" : verified ? "living" : "project";
   return {
     ...record,
-    status: Number(status),
-    statusName: STATUS_NAMES[Number(status)],
+    verified,
+    deceased,
+    stateKey,
+    status: stateKey,
+    statusName: STATE_NAMES[stateKey],
     rating: Number(rating),
     backing: Number(backing),
     fundingNeed: Number(funding.need),
@@ -396,11 +402,6 @@ export async function voteContent(contracts, tokenId, kind, cidHash, bps, author
 
 export async function registerContent(contracts, tokenId, kind, cidHash, protectionLinked) {
   const tx = await contracts.cowRating.registerContent(tokenId, kind, cidHash, protectionLinked);
-  await tx.wait();
-}
-
-export async function unvote(contracts, key) {
-  const tx = await contracts.cowRating.unvote(key);
   await tx.wait();
 }
 

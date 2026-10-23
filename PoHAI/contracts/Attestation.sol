@@ -85,6 +85,7 @@ contract Attestation is Ownable {
     error NotDisputable();
     error NotDisputed();
     error OnlyCowNFTOwner();
+    error IsDeceased();
 
     constructor(address stasis_, address cowNFT_, address cowRating_) Ownable(msg.sender) {
         stasis = Stasis(stasis_);
@@ -128,7 +129,12 @@ contract Attestation is Ownable {
     ) external returns (uint256 claimId) {
         if (bond < minBond) revert InsufficientBond();
         // Reverts if the token was never minted — an attestation must target a real record.
-        cowNFT.statusOf(tokenId);
+        cowNFT.ownerOf(tokenId);
+        // Death closes the care and funding rails only. Votes, stakes, content,
+        // sales and transfers keep working on a memorial record.
+        if ((kind == Kind.Care || kind == Kind.FundingNeed) && cowNFT.isDeceased(tokenId)) {
+            revert IsDeceased();
+        }
 
         claimId = _findOpen(tokenId, kind, value, subject);
         if (claimId != 0) {
@@ -252,9 +258,15 @@ contract Attestation is Ownable {
         executedCount[kind] += 1;
 
         if (kind == Kind.Death) {
-            cowRating.markMemorial(tokenId);
+            cowRating.markDeceased(tokenId);
         } else if (kind == Kind.Sale) {
+            // A real sale is proof the animal exists, then reality moves the NFT.
+            cowRating.markVerified(tokenId);
             cowRating.realWorldTransfer(tokenId, c.subject);
+        } else if (kind == Kind.Care || kind == Kind.Revenue) {
+            // Proof of hoof: a real animal is behind the record. Existence
+            // alone is not enough — a project can exist too.
+            cowRating.markVerified(tokenId);
         } else if (kind == Kind.FundingNeed) {
             address solver = c.subject == address(0) ? c.attester : c.subject;
             if (requireSolverCorroboration && !_supportedByOtherThan(claimId, solver)) {
@@ -267,8 +279,7 @@ contract Attestation is Ownable {
             // hours are worth more on a well-rated project.
             cowRating.rewardLabor(tokenId, c.subject, c.value);
         }
-        // Existence, Care and Revenue are recorded evidence: they do not move
-        // state on their own — users boost the cow after reading them.
+        // Existence is recorded evidence only; it does not prove a real animal.
 
         c.state = State.Executed;
         _returnAllBonds(claimId, address(0));

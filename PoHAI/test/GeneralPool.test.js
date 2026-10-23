@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
-const { withFundedRaters } = require("./fixtures");
+const { withFundedRaters, mint } = require("./fixtures");
 
 const DAY = 86_400;
 const PIGS = ethers.encodeBytes32String("pigs");
@@ -19,6 +19,14 @@ async function careProof(attestation, a, b, tokenId) {
 // Quorum an executed Labor claim and return its id (spend proof).
 async function laborProof(attestation, a, b, tokenId, worker, hours = 40n) {
   const args = [tokenId, 6, "ipfs://labor", hours, worker, 100n];
+  const id = await attestation.connect(a).attest.staticCall(...args);
+  await attestation.connect(a).attest(...args);
+  await attestation.connect(b).attest(...args);
+  return id;
+}
+
+async function needProof(attestation, a, b, tokenId, value, solver) {
+  const args = [tokenId, 5, "ipfs://need", value, solver, 100n];
   const id = await attestation.connect(a).attest.staticCall(...args);
   await attestation.connect(a).attest(...args);
   await attestation.connect(b).attest(...args);
@@ -103,10 +111,10 @@ describe("GeneralPool", function () {
         value: ethers.parseEther("1"),
       });
 
-      // Fresh cow: no anchor at all.
+      // Fresh cow is still a project: care money is verified-living-only.
       await expect(
         generalPool.connect(owner).allocateCare(fresh, 1, 0)
-      ).to.be.revertedWithCustomError(generalPool, "NoAnchor");
+      ).to.be.revertedWithCustomError(generalPool, "NotLivingCow");
 
       // Anchor live but no proof cited still fails.
       await activate(cowRating, raters, tokenId);
@@ -114,6 +122,92 @@ describe("GeneralPool", function () {
       await expect(
         generalPool.connect(owner).allocateCare(tokenId, 1, 0)
       ).to.be.revertedWithCustomError(generalPool, "NoProof");
+    });
+
+    it("closes the care rail when the real cow dies", async function () {
+      const { generalPool, attestation, cowNFT, cowRating, owner, raters, tokenId } = await loadFixture(fixture);
+      await activate(cowRating, raters, tokenId);
+      const proof = await careProof(attestation, raters[0], raters[1], tokenId);
+
+      await owner.sendTransaction({
+        to: await generalPool.getAddress(),
+        value: ethers.parseEther("1"),
+      });
+      await generalPool.connect(owner).allocateCare(tokenId, ethers.parseEther("0.25"), proof);
+
+      // Three bonded attestors record the death. The record keeps working, but
+      // care money can no longer be earmarked for it.
+      const death = [tokenId, 3, "ipfs://death", 0, ZERO, 100n];
+      for (const r of raters.slice(0, 3)) await attestation.connect(r).attest(...death);
+      expect(await cowNFT.isDeceased(tokenId)).to.equal(true);
+
+      await expect(
+        generalPool.connect(owner).allocateCare(tokenId, 1, proof)
+      ).to.be.revertedWithCustomError(generalPool, "NotLivingCow");
+    });
+  });
+
+  describe("automatic care round", function () {
+    it("allocates pro rata to rating and caps at attested need", async function () {
+      const {
+        generalPool, cowRating, attestation, cowNFT, owner, alice, bob, raters, tokenId,
+      } = await loadFixture(fixture);
+      const second = await mint(cowNFT, alice, "ipfs://second");
+
+      // Both are real cows with a fresh care proof and a recorded need.
+      await careProof(attestation, raters[0], raters[1], tokenId);
+      await careProof(attestation, raters[0], raters[1], second);
+      await needProof(attestation, raters[0], raters[1], tokenId, 500, alice.address);
+      await needProof(attestation, raters[0], raters[1], second, 1_000, alice.address);
+
+      // Cow 1 has three times the rating but a smaller need.
+      await cowRating.connect(alice).boost(tokenId, PIGS, 300);
+      await cowRating.connect(bob).boost(second, PIGS, 100);
+
+      await owner.sendTransaction({
+        to: await generalPool.getAddress(),
+        value: ethers.parseEther("10"),
+      });
+
+      // Default tithe: 20% of 10 ETH = 2 ETH. Cow 1's pro-rata share is 1.5
+      // ETH but its need caps it at 0.5; cow 2 receives its 0.5 share.
+      await generalPool.runCareRound();
+      expect(await generalPool.carePoolOf(tokenId)).to.equal(ethers.parseEther("0.5"));
+      expect(await generalPool.carePoolOf(second)).to.equal(ethers.parseEther("0.5"));
+      expect(await generalPool.totalCarePool()).to.equal(ethers.parseEther("1"));
+
+      // The round is periodic, even when called permissionlessly.
+      await expect(generalPool.runCareRound()).to.be.revertedWithCustomError(
+        generalPool,
+        "CareNotElapsed"
+      );
+    });
+
+    it("skips unverified projects and carries the leftover forward", async function () {
+      const {
+        generalPool, cowRating, attestation, cowNFT, owner, alice, raters, tokenId,
+      } = await loadFixture(fixture);
+      const project = await mint(cowNFT, alice, "ipfs://project");
+
+      // The project has a need, an anchor and rating, but no proof of hoof.
+      await needProof(attestation, raters[0], raters[1], project, 1_000, alice.address);
+      await cowRating.connect(alice).boost(project, PIGS, 1_000);
+
+      await careProof(attestation, raters[0], raters[1], tokenId);
+      await needProof(attestation, raters[0], raters[1], tokenId, 500, alice.address);
+      await cowRating.connect(alice).boost(tokenId, PIGS, 100);
+
+      await owner.sendTransaction({
+        to: await generalPool.getAddress(),
+        value: ethers.parseEther("5"),
+      });
+
+      // Budget = 1 ETH; only the verified cow is eligible, so only 0.5 ETH
+      // (its need) is earmarked and the rest stays uncommitted.
+      await generalPool.runCareRound();
+      expect(await generalPool.carePoolOf(project)).to.equal(0);
+      expect(await generalPool.carePoolOf(tokenId)).to.equal(ethers.parseEther("0.5"));
+      expect(await generalPool.totalCarePool()).to.equal(ethers.parseEther("0.5"));
     });
   });
 
@@ -131,8 +225,8 @@ describe("GeneralPool", function () {
       expect(epoch.backing).to.equal(200);
       expect(epoch.rating).to.be.greaterThan(0);
       expect(epoch.stasis).to.equal(await stasis.totalScore());
-      const [, , , activeCows] = await generalPool.platformMetrics();
-      expect(activeCows).to.equal(0); // 200 staked has not activated the cow
+      const [, , , backedCows] = await generalPool.platformMetrics();
+      expect(backedCows).to.equal(1); // a stake backs the cow immediately
       expect(await generalPool.platformValue()).to.be.greaterThan(0);
     });
   });

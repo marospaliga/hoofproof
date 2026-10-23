@@ -136,7 +136,7 @@ export default function Events({ contracts, account, notify }) {
         <div className="muted" style={{ fontSize: 13, maxWidth: 720 }}>
           Every <b>{cycle ? Math.round(cycle.period / 3600) : "?"} h</b> the pool measures how
           much protection actually happened — executed care quorums, attested labor
-          hours, graduated cows — and mints a credit pool of <b>{cycle ? cycle.ratio / 100 : "?"}×</b> that
+          hours, cows ever covered — and mints a credit pool of <b>{cycle ? cycle.ratio / 100 : "?"}×</b> that
           movement (capped at {cycle ? cycle.cap : "?"} pts). The pool is split{" "}
           <b>{cycle ? cycle.share / 100 : "?"}% to backers</b> (pro rata by contribution) and{" "}
           <b>{cycle ? (100 - cycle.share / 100) : "?"}% to active raters</b> (pro rata by

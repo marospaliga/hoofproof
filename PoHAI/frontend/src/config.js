@@ -14,12 +14,19 @@ export const DEFAULT_CONTRACTS = {
 
 export const API_BASE = "/api";
 
-export const STATUS_NAMES = ["Inert", "Active", "SelfSustaining", "Memorial"];
-export const STATUS_COLORS = {
-  Inert: "#6f6857",          // weathered grey-brown
-  Active: "#456d33",         // deep grass green
-  SelfSustaining: "#846414", // harvest gold
-  Memorial: "#a8322b",       // barn red
+// A cow record carries two independent facts, not a status ladder:
+//   project   — a record with no proof of hoof (an idea, a fundraiser)
+//   living    — a real animal stands behind it
+//   memorial  — the real animal has died; the record stays fully usable
+export const STATE_NAMES = {
+  project: "Project",
+  living: "Living real",
+  memorial: "Memorial",
+};
+export const STATE_COLORS = {
+  project: "#6f6857", // weathered grey-brown
+  living: "#456d33", // deep grass green
+  memorial: "#a8322b", // barn red
 };
 
 // The chain's decay windows are not hardcoded here: they are owner-settable

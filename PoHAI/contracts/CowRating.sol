@@ -26,22 +26,23 @@ interface IAttestation {
 /// staked onto a cow, or voiced as a thumbs-up on the cow or on content under
 /// it, and spent as the cost of a transfer. **A voice is simply rating
 /// committed**: there is no size ladder and no weighting formula, so voting
-/// harder means spending more rating. The rating you commit is refundable once
-/// the lock period elapses; there is no separate budget or power meter, because
-/// your rating *is* the budget.
+/// harder means spending more rating. A vote is permanent: the rating is spent,
+/// never refunded. Labour pledges are the one exception — they are work
+/// commitments, released after their lock, not votes.
 contract CowRating is Ownable, ITransferValidator {
     uint256 public constant BPS = 10_000;
 
     // ---- staking
-    uint256 public activationThreshold = 1_000; // weighted rating to leave Inert
-    uint256 public concentrationCapBps = 2_000; // one account may hold at most 20%
     uint256 public lockPeriod = 30 days; // conviction window
+    /// @notice Backing floor used only by transfer pricing, so a nearly-bare
+    ///         cow is not made free by a rounding edge.
+    uint256 public transferBackingFloor = 1_000;
     uint256 public earlyUnlockPenaltyBps = 5_000; // max 50%, scaled by time remaining
 
     // ---- voting (rating put behind a cow)
-    /// @notice A voice is simply rating committed. There is no size ladder:
-    ///         rating *is* the amount, and it is refundable until the lock
-    ///         period elapses (see `unvote`). `minVoice` is only a dust guard.
+    /// @notice A voice is simply rating committed, and it is permanent. There
+    ///         is no unvote: the rating is spent, and `freeScore` stays lower.
+    ///         `minVoice` is only a dust guard.
     uint256 public minVoice = 1;
     /// @notice Recent, sustained activity still marks an account as a live
     ///         participant — it no longer scales a vote, it only feeds the
@@ -61,7 +62,6 @@ contract CowRating is Ownable, ITransferValidator {
 
     // ---- sustainability lifecycle
     uint256 public needPeriod = 30 days;
-    uint256 public zeroStreakRequired = 3; // consecutive zero-need periods
     uint256 public creditBps = 1_000; // 10% of the reduction is credited to the solver
 
     // ---- transfers
@@ -89,7 +89,8 @@ contract CowRating is Ownable, ITransferValidator {
     struct Funding {
         uint256 need;
         uint256 lastRecord;
-        uint256 zeroStreak;
+        bool everNeeded; // a prior period recorded a positive need
+        bool countedCovered; // this cow has already counted toward cowsEverCovered
     }
 
     Stasis public stasis;
@@ -98,8 +99,9 @@ contract CowRating is Ownable, ITransferValidator {
 
     mapping(uint256 => mapping(address => Stake)) public stakes;
     mapping(uint256 => uint256) public totalStaked;
-    /// Staked rating weighted by conviction (tier ramp). Activation is decided
-    /// on this, so longer commitments push a cow toward Active faster.
+    /// Staked rating weighted by conviction (tier ramp). Kept for transfer cost
+    /// and backing display; it no longer gates any status, because there is no
+    /// activation threshold.
     mapping(uint256 => uint256) public totalWeightedStaked;
     mapping(uint256 => uint256) public cowRating;
     /// Content-level ratings: contentRating[tokenId][cidHash][kind bps bytes].
@@ -120,7 +122,10 @@ contract CowRating is Ownable, ITransferValidator {
     // ---- platform-level aggregates (consumed by the GeneralPool value index)
     uint256 public totalBacking;
     uint256 public totalRatingPoints;
-    uint256 public activeCowCount;
+    /// @notice Cows that have ever received rating or a stake. Monotonic: the
+    ///         index measures reach, not a rank that can be lost.
+    uint256 public backedCowCount;
+    mapping(uint256 => bool) public cowBacked;
 
     /// @notice Need-weights (BPS-scaled: 10_000 = 1x, 0 = unset -> 1x): set the
     ///         value the system currently lacks, and contributing to it earns
@@ -134,7 +139,7 @@ contract CowRating is Ownable, ITransferValidator {
     mapping(bytes32 => uint256) public contentLastActive;
     mapping(bytes32 => bool) public contentProtectionLinked;
     /// @notice Content with no vote/heartbeat inside this window goes dormant:
-    ///         new votes freeze, existing voice locks can be reaped.
+    ///         new votes freeze; votes already cast stay spent.
     uint256 public contentDormantWindow = 180 days;
 
     // ---- protection anchor windows (anti-speculation gate for all payoffs)
@@ -155,6 +160,7 @@ contract CowRating is Ownable, ITransferValidator {
         uint8 kind;
         bytes32 cidHash;
         bool isBoost;
+        bool isLabor;
         bool set;
     }
     mapping(bytes32 => LockTarget) public lockTarget;
@@ -210,7 +216,9 @@ contract CowRating is Ownable, ITransferValidator {
 
     // ---- protection aggregates (consumed by the GeneralPool cycle credit)
     uint256 public totalLaborHours;
-    uint256 public selfSustainingCount;
+    /// @notice Cows that once had a positive need and later reached zero.
+    ///         Monotonic: a cow cannot be "un-covered" in the index.
+    uint256 public cowsEverCovered;
 
     // ---- the clock -------------------------------------------------------
     /// @notice Every progression deadline in one bundle.
@@ -230,7 +238,6 @@ contract CowRating is Ownable, ITransferValidator {
         uint256 tierCommit2; // conviction ramp to tier 2
         uint256 momentumDecay; // activity ledger decay
         uint256 contentDormantWindow; // thread dormancy
-        uint256 zeroStreakRequired; // periods of zero need for SelfSustaining
     }
 
     event Staked(uint256 indexed tokenId, address indexed account, uint256 amount, uint256 totalStaked);
@@ -239,17 +246,17 @@ contract CowRating is Ownable, ITransferValidator {
     event Boosted(uint256 indexed tokenId, address indexed account, bytes32 category, uint256 weight, uint256 newRating);
     event LaborRewarded(uint256 indexed tokenId, address indexed worker, uint256 attestedHours, uint256 reward);
     event FundingNeedRecorded(uint256 indexed tokenId, uint256 previous, uint256 current, address solver);
-    event SelfSustaining(uint256 indexed tokenId);
+    event CowCovered(uint256 indexed tokenId);
     event TransferValidated(uint256 indexed tokenId, address indexed from, address indexed to, uint256 cost);
     event ParameterSet(bytes32 indexed key, uint256 value);
     event WiringSet(address indexed cowNFT, address indexed attestation);
     event ContentRegistered(uint256 indexed tokenId, uint8 kind, bytes32 indexed cidHash, address indexed author, bool protectionLinked);
     event ContentRewarded(uint256 indexed tokenId, uint8 kind, bytes32 indexed cidHash, address indexed author, address curator, uint256 award, bool isSelf);
-    event Unvoted(address indexed voter, bytes32 indexed key, uint256 freedWeight);
     event ConvictionPoked(uint256 indexed tokenId, address indexed account, uint256 newWeighted);
     event HeadStartGranted(uint256 indexed tokenId, uint8 kind, bytes32 indexed cidHash, address indexed author, uint256 amount);
     event HeadStartReaped(bytes32 indexed key, uint256 amount);
     event LaborCommitted(uint256 indexed tokenId, address indexed worker, uint256 amount, uint256 unlockAt);
+    event LaborReleased(address indexed worker, bytes32 indexed key, uint256 amount);
     event ModerationSet(address indexed moderation, uint256 slashBps);
     event TimingsSet(Timings timings);
     event ContentFlagged(uint256 indexed tokenId, bytes32 indexed key, bool hidden);
@@ -257,11 +264,10 @@ contract CowRating is Ownable, ITransferValidator {
     error OnlyCowNFT();
     error OnlyAttestation();
     error ZeroAmount();
-    error ConcentrationCap();
     error InsufficientStake();
     error PeriodNotElapsed();
     error InvalidBoost();
-    error IsMemorial();
+    error IsDeceased();
     error WeightTooLow();
     error AlreadyWired();
     error AlreadyRegistered();
@@ -280,6 +286,7 @@ contract CowRating is Ownable, ITransferValidator {
     error OnlyModeration();
     error NotHidden();
     error NothingToSlash();
+    error NotLaborLock();
 
     constructor(address stasis_) Ownable(msg.sender) {
         stasis = Stasis(stasis_);
@@ -313,7 +320,7 @@ contract CowRating is Ownable, ITransferValidator {
             t.lockPeriod == 0 || t.needPeriod == 0 || t.careWindow == 0 || t.laborWindow == 0
                 || t.needWindow == 0 || t.headStartWindow == 0 || t.laborLockPeriod == 0
                 || t.tierCommit1 == 0 || t.tierCommit2 == 0 || t.momentumDecay == 0
-                || t.contentDormantWindow == 0 || t.zeroStreakRequired == 0
+                || t.contentDormantWindow == 0
         ) revert ZeroAmount();
         lockPeriod = t.lockPeriod;
         needPeriod = t.needPeriod;
@@ -326,7 +333,6 @@ contract CowRating is Ownable, ITransferValidator {
         tierCommit2 = t.tierCommit2;
         momentumDecay = t.momentumDecay;
         contentDormantWindow = t.contentDormantWindow;
-        zeroStreakRequired = t.zeroStreakRequired;
         emit TimingsSet(t);
     }
 
@@ -361,11 +367,10 @@ contract CowRating is Ownable, ITransferValidator {
 
     // -------------------------------------------------------------- staking
 
-    function _concentrationBase(uint256 tokenId) internal view returns (uint256) {
-        uint256 base = totalStaked[tokenId];
-        // Before a cow reaches threshold the cap is measured against the
-        // threshold itself, so a single account can never activate a cow alone.
-        return base < activationThreshold ? activationThreshold : base;
+    function _markBacked(uint256 tokenId) internal {
+        if (cowBacked[tokenId]) return;
+        cowBacked[tokenId] = true;
+        backedCowCount += 1;
     }
 
     /// @notice Commit rating to a cow. Committed rating is bonded — it can no
@@ -408,12 +413,10 @@ contract CowRating is Ownable, ITransferValidator {
 
     function _stake(uint256 tokenId, uint256 amount, uint8 tier) internal {
         if (amount == 0) revert ZeroAmount();
-        if (cowNFT.statusOf(tokenId) == CowNFT.Status.Memorial) revert IsMemorial();
+        cowNFT.isDeceased(tokenId); // existence check; death does not block staking
 
         Stake storage s = stakes[tokenId][msg.sender];
         if (s.amount > 0 && s.tier != tier) revert TierMismatch();
-        uint256 allowed = (_concentrationBase(tokenId) * concentrationCapBps) / BPS;
-        if (s.amount + amount > allowed) revert ConcentrationCap();
 
         stasis.bond(msg.sender, amount); // reverts unless the account has free score
 
@@ -429,22 +432,15 @@ contract CowRating is Ownable, ITransferValidator {
         totalStaked[tokenId] += amount;
         totalBacking += amount;
         totalWeightedStaked[tokenId] += s.weighted;
+        _markBacked(tokenId);
         _touchActivity(msg.sender, 1);
 
         emit Staked(tokenId, msg.sender, amount, totalStaked[tokenId]);
-
-        _tryActivate(tokenId);
-    }
-
-    function _tryActivate(uint256 tokenId) internal {
-        if (totalWeightedStaked[tokenId] >= activationThreshold && cowNFT.statusOf(tokenId) == CowNFT.Status.Inert) {
-            activeCowCount += 1;
-            cowNFT.markActive(tokenId);
-        }
     }
 
     /// @notice Permissionless refresh of anyone's conviction vintage: accrues
-    ///         time-weight into `totalWeightedStaked` and may flip the cow Active.
+    ///         time-weight into `totalWeightedStaked`. It no longer changes any
+    ///         status — there is no Activation to reach.
     function pokeStake(uint256 tokenId, address account) external {
         Stake storage s = stakes[tokenId][account];
         if (s.amount == 0) return;
@@ -452,7 +448,6 @@ contract CowRating is Ownable, ITransferValidator {
         s.weighted = (s.amount * convictionBps(s.since, s.tier)) / BPS;
         totalWeightedStaked[tokenId] += s.weighted;
         emit ConvictionPoked(tokenId, account, s.weighted);
-        _tryActivate(tokenId);
     }
 
     /// @notice Withdraw committed rating. Leaving early costs rating, scaled by
@@ -557,7 +552,7 @@ contract CowRating is Ownable, ITransferValidator {
     ///         auto-register the voter (see `_vote`).
     function registerContent(uint256 tokenId, uint8 kind, bytes32 cidHash, bool protectionLinked) external {
         if (kind != uint8(VoteKind.Image) && kind != uint8(VoteKind.Post)) revert InvalidBoost();
-        cowNFT.statusOf(tokenId); // reverts for never-minted tokens
+        cowNFT.ownerOf(tokenId); // reverts for never-minted tokens
         bytes32 key = contentKeyOf(tokenId, kind, cidHash);
         address existing = contentAuthor[key];
         if (existing != address(0) && existing != msg.sender) revert AlreadyRegistered();
@@ -590,7 +585,7 @@ contract CowRating is Ownable, ITransferValidator {
         if (headStart == 0) return;
 
         if (!lockTarget[key].set) {
-            lockTarget[key] = LockTarget(tokenId, kind, cidHash, false, true);
+            lockTarget[key] = LockTarget(tokenId, kind, cidHash, false, false, true);
         }
         stasis.voice(author, headStart);
         _recordLock(author, key, headStart);
@@ -623,22 +618,22 @@ contract CowRating is Ownable, ITransferValidator {
         emit HeadStartReaped(key, amount);
     }
 
-    /// @notice Content is votable while its cow lives and it saw activity
-    ///         inside the dormancy window. Memorial freezes everything.
+    /// @notice Content is votable while it saw activity inside the dormancy
+    ///         window. Death no longer freezes content; a memorial cow's record
+    ///         stays part of the conversation.
     function contentIsActive(bytes32 key) public view returns (bool) {
         if (contentAuthor[key] == address(0)) return false;
-        uint256 tokenId = contentTokenId[key];
-        if (address(cowNFT) == address(0)) return true;
-        if (cowNFT.statusOf(tokenId) == CowNFT.Status.Memorial) return false;
         return block.timestamp - contentLastActive[key] < contentDormantWindow;
     }
 
-    /// @notice A cow is a live protection project while Active with a fresh
-    ///         quorum'd Care claim, executed Labor, or funding-need record.
-    ///         Every payoff — Stasis mints and ETH releases — keys off this.
+    /// @notice A cow is a live protection project while it is not deceased,
+    ///         still has some backing, and carries a fresh quorum'd Care claim,
+    ///         executed Labor, or funding-need record. Every payoff — Stasis
+    ///         mints and ETH releases — keys off this. Death blocks new claims.
     function protectionAnchorLive(uint256 tokenId) public view returns (bool) {
         if (address(cowNFT) == address(0)) return false;
-        if (cowNFT.statusOf(tokenId) != CowNFT.Status.Active) return false;
+        if (cowNFT.isDeceased(tokenId)) return false;
+        if (cowRating[tokenId] == 0 && totalStaked[tokenId] == 0) return false;
         uint256 t = block.timestamp;
         if (address(attestation) != address(0)) {
             IAttestation a = IAttestation(attestation);
@@ -674,7 +669,7 @@ contract CowRating is Ownable, ITransferValidator {
 
     /// @notice Subtract `amount` of rating from wherever `key` stores it: the
     ///         cow, its content rating, and the platform total. Shared by
-    ///         unvote, dilution, reaping, awards and moderation slashing.
+    ///         author awards, provisional reaping and moderation slashing.
     function _subtractRating(bytes32 key, uint256 amount) internal {
         if (amount == 0) return;
         LockTarget storage t = lockTarget[key];
@@ -739,7 +734,7 @@ contract CowRating is Ownable, ITransferValidator {
 
     function _noteTarget(bytes32 key, uint256 tokenId, uint8 kind, bytes32 cidHash, bool isBoost) internal {
         if (!lockTarget[key].set) {
-            lockTarget[key] = LockTarget(tokenId, kind, cidHash, isBoost, true);
+            lockTarget[key] = LockTarget(tokenId, kind, cidHash, isBoost, false, true);
         }
     }
 
@@ -804,7 +799,7 @@ contract CowRating is Ownable, ITransferValidator {
     function _vote(uint256 tokenId, uint8 kind, bytes32 cidHash, uint256 amount, address author) internal {
         if (kind > uint8(VoteKind.Post)) revert InvalidBoost();
         if (amount < minVoice) revert WeightTooLow();
-        if (cowNFT.statusOf(tokenId) == CowNFT.Status.Memorial) revert IsMemorial();
+        cowNFT.ownerOf(tokenId); // existence check; death does not block votes
 
         bytes32 lockKey = kind == uint8(VoteKind.Cow)
             ? cowKeyOf(tokenId)
@@ -812,6 +807,7 @@ contract CowRating is Ownable, ITransferValidator {
 
         _noteTarget(lockKey, tokenId, kind, cidHash, false);
         _lockVoice(msg.sender, lockKey, amount);
+        _markBacked(tokenId);
         _touchActivity(msg.sender, 2);
         uint256 newRating = _applyVote(tokenId, kind, cidHash, amount);
         _rewardContent(lockKey, amount);
@@ -856,43 +852,16 @@ contract CowRating is Ownable, ITransferValidator {
         emit ContentRewarded(t.tokenId, t.kind, t.cidHash, creator, msg.sender, award, msg.sender == creator);
     }
 
-    /// @notice Release one of your own voice locks (hands the rating straight
-    ///         back). Conviction-locked (labor) liens and hidden content stay frozen.
-    function unvote(bytes32 key) external {
+    /// @notice Release a labour pledge once its conviction window has passed.
+    ///         This is the one refund in the system: it returns *work* rating,
+    ///         not a vote. Ordinary votes are permanent and have no release.
+    function releaseLabor(bytes32 key) external {
         uint256 amt = lockOf[msg.sender][key];
         if (amt == 0) revert NothingLocked();
+        if (!lockTarget[key].isLabor) revert NotLaborLock();
         if (lockUntil[msg.sender][key] > block.timestamp) revert LockedUntil();
-        if (contentHidden[key]) revert ContentHidden();
         _freeLock(msg.sender, key, amt);
-        emit Unvoted(msg.sender, key, amt);
-    }
-
-    /// @notice Permissionless cleanup: free anyone's locks on dormant content.
-    ///         Bounded per call (caller-sized, max 20) to avoid gas-DoS.
-    function reapStale(address voter, bytes32[] calldata keys) external {
-        if (keys.length == 0 || keys.length > 20) revert TooManyKeys();
-        uint256 freed;
-        for (uint256 i = 0; i < keys.length; i++) {
-            bytes32 key = keys[i];
-            uint256 amt = lockOf[voter][key];
-            if (amt == 0) continue;
-            if (contentHidden[key]) continue; // hidden content is slashed, not released
-            LockTarget storage t = lockTarget[key];
-            bool stale = true;
-            if (t.set) {
-                if (t.isBoost) {
-                    stale = cowNFT.statusOf(t.tokenId) == CowNFT.Status.Memorial;
-                } else if (t.kind == uint8(VoteKind.Cow)) {
-                    stale = cowNFT.statusOf(t.tokenId) == CowNFT.Status.Memorial;
-                } else {
-                    stale = !contentIsActive(key);
-                }
-            }
-            if (!stale) continue;
-            _freeLock(voter, key, amt);
-            freed += amt;
-        }
-        emit Unvoted(voter, bytes32(0), freed);
+        emit LaborReleased(msg.sender, key, amt);
     }
 
     /// @notice Enumerate a voter's locks for meters/previews (view only).
@@ -925,8 +894,8 @@ contract CowRating is Ownable, ITransferValidator {
     /// @notice Commit rating to the whole cow. `category` may reference a
     ///         need-weight parameter, which scales the amount actually applied.
     function boost(uint256 tokenId, bytes32 category, uint256 amount) external {
-        if (cowNFT.statusOf(tokenId) == CowNFT.Status.Memorial) revert IsMemorial();
         if (amount < minVoice) revert WeightTooLow();
+        cowNFT.ownerOf(tokenId); // existence check; death does not block rating
 
         uint256 applied = amount;
         uint256 param = parameter[category];
@@ -938,6 +907,7 @@ contract CowRating is Ownable, ITransferValidator {
         _lockVoice(msg.sender, key, applied);
         cowRating[tokenId] += applied;
         totalRatingPoints += applied;
+        _markBacked(tokenId);
         _touchActivity(msg.sender, 2);
 
         emit Boosted(tokenId, msg.sender, category, applied, cowRating[tokenId]);
@@ -952,7 +922,7 @@ contract CowRating is Ownable, ITransferValidator {
         uint256 base = cowRating[tokenId];
         if (base == 0) return 0;
 
-        (, , uint256 herdId, ) = cowNFT.cows(tokenId);
+        (, , , uint256 herdId, ) = cowNFT.cows(tokenId);
         if (herdId == 0) return base;
 
         uint256 members = cowNFT.herdCount(herdId);
@@ -998,6 +968,7 @@ contract CowRating is Ownable, ITransferValidator {
                 uint256 unlockAt = block.timestamp + laborLockPeriod;
                 bytes32 laborKey = keccak256(abi.encode("labor", tokenId, worker, _laborLockNonce++));
                 _noteTarget(laborKey, tokenId, uint8(VoteKind.Cow), bytes32(0), true);
+                lockTarget[laborKey].isLabor = true;
                 stasis.voice(worker, commit);
                 _recordLock(worker, laborKey, commit);
                 lockUntil[worker][laborKey] = unlockAt;
@@ -1058,11 +1029,13 @@ contract CowRating is Ownable, ITransferValidator {
     // ------------------------------------------------- sustainability lifecycle
 
     /// @notice Record the project's remaining funding need for this period.
-    ///         Hitting zero for `zeroStreakRequired` consecutive periods flips
-    ///         the cow to SelfSustaining. A *reduction* credits the solver —
-    ///         the person who removed the dependency earns the rating.
+    ///         `need` is a live number: above zero means the cow needs help,
+    ///         zero means it is covered — and it can flip back next period.
+    ///         A *reduction* credits the solver; the first time a cow that once
+    ///         needed help reaches zero, the index counts it as covered.
     function recordFundingNeed(uint256 tokenId, uint256 newNeed, address solver) external {
         if (msg.sender != attestation) revert OnlyAttestation();
+        if (cowNFT.isDeceased(tokenId)) revert IsDeceased();
 
         Funding storage f = funding[tokenId];
         if (f.lastRecord != 0 && block.timestamp < f.lastRecord + needPeriod) revert PeriodNotElapsed();
@@ -1070,13 +1043,11 @@ contract CowRating is Ownable, ITransferValidator {
         uint256 previous = f.need;
         f.lastRecord = block.timestamp;
         f.need = newNeed;
+        if (newNeed > 0) f.everNeeded = true;
 
         // Reporting a verified need is protection work whether it is new,
         // ongoing or reduced; the Stasis award below is only for reductions.
         if (solver != address(0)) _touchProtection(solver, 3);
-
-        if (newNeed == 0) f.zeroStreak += 1;
-        else f.zeroStreak = 0;
 
         emit FundingNeedRecorded(tokenId, previous, newNeed, solver);
 
@@ -1086,10 +1057,10 @@ contract CowRating is Ownable, ITransferValidator {
             if (award > 0) stasis.award(solver, award, "sustainability");
         }
 
-        if (f.zeroStreak >= zeroStreakRequired && cowNFT.statusOf(tokenId) == CowNFT.Status.Active) {
-            cowNFT.markSelfSustaining(tokenId);
-            selfSustainingCount += 1;
-            emit SelfSustaining(tokenId);
+        if (newNeed == 0 && f.everNeeded && !f.countedCovered) {
+            f.countedCovered = true;
+            cowsEverCovered += 1;
+            emit CowCovered(tokenId);
         }
     }
 
@@ -1103,7 +1074,7 @@ contract CowRating is Ownable, ITransferValidator {
         if (rating > transferRatingCap) rating = transferRatingCap;
 
         uint256 backing = totalStaked[tokenId];
-        if (backing < activationThreshold) backing = activationThreshold;
+        if (backing < transferBackingFloor) backing = transferBackingFloor;
 
         uint256 base = (baseTransferCost * (BPS + rating)) / (BPS + backing);
 
@@ -1132,9 +1103,18 @@ contract CowRating is Ownable, ITransferValidator {
         cowNFT.realWorldTransfer(tokenId, to);
     }
 
-    /// @notice Called by Attestation once enough bonded raters report a death.
-    function markMemorial(uint256 tokenId) external {
+    /// @notice Called by Attestation once the first Care, Revenue, Sale or
+    ///         Death claim executes. A project never earns proof of hoof.
+    function markVerified(uint256 tokenId) external {
         if (msg.sender != attestation) revert OnlyAttestation();
-        cowNFT.markMemorial(tokenId);
+        cowNFT.markVerified(tokenId);
+    }
+
+    /// @notice Called by Attestation once enough bonded raters report a death.
+    ///         The record remains fully usable — only new care and funding
+    ///         claims end.
+    function markDeceased(uint256 tokenId) external {
+        if (msg.sender != attestation) revert OnlyAttestation();
+        cowNFT.markDeceased(tokenId);
     }
 }

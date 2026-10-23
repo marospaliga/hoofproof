@@ -82,7 +82,7 @@ export default function App() {
             try {
               return r.tokenId ? await enrichCow(r, contracts) : r;
             } catch {
-              return { ...r, statusName: "—", status: -1 };
+              return { ...r, statusName: "—", stateKey: "project", status: -1 };
             }
           })
         );
@@ -93,6 +93,7 @@ export default function App() {
           rating: c.rating ?? "—",
           backing: c.backing ?? "—",
           statusName: c.statusName || "no chain",
+          stateKey: c.stateKey || "project",
         }))
       );
     } catch (err) {
@@ -151,7 +152,7 @@ export default function App() {
         try {
           return r.tokenId ? await enrichCow(r, c) : r;
         } catch {
-          return { ...r, statusName: "—", status: -1 };
+          return { ...r, statusName: "—", stateKey: "project", status: -1 };
         }
       })
     );
@@ -165,7 +166,7 @@ export default function App() {
   function onDisconnect() {
     setWallet(null);
     setContracts(null);
-    setRep({ score: 0, bonded: 0, voiceLocked: 0, protection: 0 });
+    setRep({ score: 0, bonded: 0, voiced: 0, free: 0, voiceLocked: 0, protection: 0 });
     refresh();
   }
 
@@ -315,9 +316,9 @@ export default function App() {
               </div>
             </div>
             <p className="muted" style={{ maxWidth: 640 }}>
-              Cows start <b>Inert</b>. Raters stake their reputation to back one,
-              and once enough independent raters commit, it becomes{" "}
-              <b>Active</b> and joins the conversation below.
+              Cows are live the moment they are minted. Raters back one with their
+              reputation; the first executed care, revenue, sale or death claim
+              turns it from a <b>project</b> into a <b>living real</b> record.
             </p>
             <CowList cows={cows} onOpen={(cow) => setSelectedCid(cow.cid)} />
           </>

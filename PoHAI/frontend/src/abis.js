@@ -1063,11 +1063,6 @@ export default {
     },
     {
       "inputs": [],
-      "name": "IsMemorial",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "NotTokenOwner",
       "type": "error"
     },
@@ -1186,6 +1181,19 @@ export default {
           "internalType": "uint256",
           "name": "tokenId",
           "type": "uint256"
+        }
+      ],
+      "name": "Deceased",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
         },
         {
           "indexed": false,
@@ -1240,25 +1248,6 @@ export default {
       "inputs": [
         {
           "indexed": true,
-          "internalType": "uint256",
-          "name": "tokenId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "enum CowNFT.Status",
-          "name": "status",
-          "type": "uint8"
-        }
-      ],
-      "name": "StatusChanged",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
           "internalType": "address",
           "name": "from",
           "type": "address"
@@ -1277,6 +1266,19 @@ export default {
         }
       ],
       "name": "Transfer",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "name": "Verified",
       "type": "event"
     },
     {
@@ -1332,9 +1334,14 @@ export default {
           "type": "string"
         },
         {
-          "internalType": "enum CowNFT.Status",
-          "name": "status",
-          "type": "uint8"
+          "internalType": "bool",
+          "name": "verified",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "deceased",
+          "type": "bool"
         },
         {
           "internalType": "uint256",
@@ -1439,7 +1446,45 @@ export default {
           "type": "uint256"
         }
       ],
-      "name": "markActive",
+      "name": "isDeceased",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "name": "isVerified",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "name": "markDeceased",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -1452,20 +1497,7 @@ export default {
           "type": "uint256"
         }
       ],
-      "name": "markMemorial",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "tokenId",
-          "type": "uint256"
-        }
-      ],
-      "name": "markSelfSustaining",
+      "name": "markVerified",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -1712,25 +1744,6 @@ export default {
     {
       "inputs": [
         {
-          "internalType": "uint256",
-          "name": "tokenId",
-          "type": "uint256"
-        }
-      ],
-      "name": "statusOf",
-      "outputs": [
-        {
-          "internalType": "enum CowNFT.Status",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "bytes4",
           "name": "interfaceId",
           "type": "bytes4"
@@ -1850,11 +1863,6 @@ export default {
     },
     {
       "inputs": [],
-      "name": "ConcentrationCap",
-      "type": "error"
-    },
-    {
-      "inputs": [],
       "name": "ContentHidden",
       "type": "error"
     },
@@ -1875,7 +1883,7 @@ export default {
     },
     {
       "inputs": [],
-      "name": "IsMemorial",
+      "name": "IsDeceased",
       "type": "error"
     },
     {
@@ -1891,6 +1899,11 @@ export default {
     {
       "inputs": [],
       "name": "NotHidden",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotLaborLock",
       "type": "error"
     },
     {
@@ -2186,6 +2199,19 @@ export default {
           "internalType": "uint256",
           "name": "tokenId",
           "type": "uint256"
+        }
+      ],
+      "name": "CowCovered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
         },
         {
           "indexed": false,
@@ -2301,6 +2327,31 @@ export default {
       "inputs": [
         {
           "indexed": true,
+          "internalType": "address",
+          "name": "worker",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "key",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "LaborReleased",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
           "internalType": "uint256",
           "name": "tokenId",
           "type": "uint256"
@@ -2382,19 +2433,6 @@ export default {
         }
       ],
       "name": "ParameterSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "tokenId",
-          "type": "uint256"
-        }
-      ],
-      "name": "SelfSustaining",
       "type": "event"
     },
     {
@@ -2487,11 +2525,6 @@ export default {
               "internalType": "uint256",
               "name": "contentDormantWindow",
               "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "zeroStreakRequired",
-              "type": "uint256"
             }
           ],
           "indexed": false,
@@ -2563,31 +2596,6 @@ export default {
         }
       ],
       "name": "Unstaked",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "voter",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "key",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "freedWeight",
-          "type": "uint256"
-        }
-      ],
-      "name": "Unvoted",
       "type": "event"
     },
     {
@@ -2667,19 +2675,6 @@ export default {
     },
     {
       "inputs": [],
-      "name": "activationThreshold",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "activeAccountCount",
       "outputs": [
         {
@@ -2705,19 +2700,6 @@ export default {
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "activeCowCount",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -2864,6 +2846,19 @@ export default {
     },
     {
       "inputs": [],
+      "name": "backedCowCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "baseTransferCost",
       "outputs": [
         {
@@ -2914,19 +2909,6 @@ export default {
     {
       "inputs": [],
       "name": "careWindow",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "concentrationCapBps",
       "outputs": [
         {
           "internalType": "uint256",
@@ -3217,6 +3199,25 @@ export default {
       "inputs": [
         {
           "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "cowBacked",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
           "name": "tokenId",
           "type": "uint256"
         }
@@ -3254,6 +3255,19 @@ export default {
         }
       ],
       "name": "cowRating",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "cowsEverCovered",
       "outputs": [
         {
           "internalType": "uint256",
@@ -3324,9 +3338,14 @@ export default {
           "type": "uint256"
         },
         {
-          "internalType": "uint256",
-          "name": "zeroStreak",
-          "type": "uint256"
+          "internalType": "bool",
+          "name": "everNeeded",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "countedCovered",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
@@ -3533,6 +3552,11 @@ export default {
         },
         {
           "internalType": "bool",
+          "name": "isLabor",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
           "name": "set",
           "type": "bool"
         }
@@ -3572,7 +3596,20 @@ export default {
           "type": "uint256"
         }
       ],
-      "name": "markMemorial",
+      "name": "markDeceased",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "name": "markVerified",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -3893,24 +3930,6 @@ export default {
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "voter",
-          "type": "address"
-        },
-        {
-          "internalType": "bytes32[]",
-          "name": "keys",
-          "type": "bytes32[]"
-        }
-      ],
-      "name": "reapStale",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "internalType": "uint256",
           "name": "tokenId",
           "type": "uint256"
@@ -3960,6 +3979,19 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "key",
+          "type": "bytes32"
+        }
+      ],
+      "name": "releaseLabor",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
       "inputs": [],
       "name": "renounceOwnership",
       "outputs": [],
@@ -3987,19 +4019,6 @@ export default {
       "name": "rewardLabor",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "selfSustainingCount",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -4187,11 +4206,6 @@ export default {
             {
               "internalType": "uint256",
               "name": "contentDormantWindow",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "zeroStreakRequired",
               "type": "uint256"
             }
           ],
@@ -4598,6 +4612,19 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "transferBackingFloor",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "uint256",
@@ -4661,19 +4688,6 @@ export default {
         }
       ],
       "name": "unstakeRating",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "key",
-          "type": "bytes32"
-        }
-      ],
-      "name": "unvote",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -4814,19 +4828,6 @@ export default {
       ],
       "stateMutability": "view",
       "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "zeroStreakRequired",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
     }
   ],
   "attestation": [
@@ -4864,6 +4865,11 @@ export default {
     {
       "inputs": [],
       "name": "InsufficientBond",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "IsDeceased",
       "type": "error"
     },
     {
@@ -5652,6 +5658,11 @@ export default {
     },
     {
       "inputs": [],
+      "name": "CareNotElapsed",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "CycleNotElapsed",
       "type": "error"
     },
@@ -5703,6 +5714,11 @@ export default {
     {
       "inputs": [],
       "name": "NotEventCreator",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotLivingCow",
       "type": "error"
     },
     {
@@ -5816,6 +5832,37 @@ export default {
         }
       ],
       "name": "CareRedeemed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "at",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "budget",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "distributed",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "cows",
+          "type": "uint256"
+        }
+      ],
+      "name": "CareRound",
       "type": "event"
     },
     {
@@ -6053,7 +6100,7 @@ export default {
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "activeCows",
+          "name": "backedCows",
           "type": "uint256"
         }
       ],
@@ -6176,6 +6223,19 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "carePeriod",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "uint256",
@@ -6221,6 +6281,19 @@ export default {
           "internalType": "bool",
           "name": "",
           "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "careTitheBps",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -6562,12 +6635,12 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "solved",
+          "name": "covered",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "activeCows",
+          "name": "backedCows",
           "type": "uint256"
         }
       ],
@@ -6577,6 +6650,19 @@ export default {
     {
       "inputs": [],
       "name": "largeSpendThreshold",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "lastCareAt",
       "outputs": [
         {
           "internalType": "uint256",
@@ -6699,6 +6785,19 @@ export default {
     },
     {
       "inputs": [],
+      "name": "maxCareCows",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "maxCycleCredit",
       "outputs": [
         {
@@ -6757,7 +6856,7 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "activeCows",
+          "name": "backedCows",
           "type": "uint256"
         }
       ],
@@ -6793,7 +6892,7 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "solved",
+          "name": "covered",
           "type": "uint256"
         }
       ],
@@ -6831,6 +6930,13 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "runCareRound",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "uint256",
@@ -6839,6 +6945,24 @@ export default {
         }
       ],
       "name": "setCarePolicy",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "titheBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "period",
+          "type": "uint256"
+        }
+      ],
+      "name": "setCareRound",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -6885,7 +7009,7 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "activeCow",
+          "name": "backedCow",
           "type": "uint256"
         },
         {
@@ -6900,7 +7024,7 @@ export default {
         },
         {
           "internalType": "uint256",
-          "name": "solved",
+          "name": "coveredCow",
           "type": "uint256"
         }
       ],
@@ -7039,6 +7163,19 @@ export default {
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "totalCarePool",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -7053,7 +7190,7 @@ export default {
     },
     {
       "inputs": [],
-      "name": "weightActiveCow",
+      "name": "weightBackedCow",
       "outputs": [
         {
           "internalType": "uint256",
@@ -7092,6 +7229,19 @@ export default {
     },
     {
       "inputs": [],
+      "name": "weightCoveredCow",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "weightLaborHour",
       "outputs": [
         {
@@ -7106,19 +7256,6 @@ export default {
     {
       "inputs": [],
       "name": "weightRating",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "weightSolved",
       "outputs": [
         {
           "internalType": "uint256",

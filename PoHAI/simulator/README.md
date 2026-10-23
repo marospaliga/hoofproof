@@ -18,8 +18,9 @@ Needs: local chain (`npm run node` or `npm run dev`) + a deployment
   demo raters are #1–#6 (700 Stasis each, earned from the course).
 * **Vote / stake / unstake** on any cow and watch rating and voice
   locks move; a vote spends exactly as much rating as it adds.
-* **Run scripted scenarios**: cold-start activation, rating-spend (a voice is
-  just rating spent), credibility head-starts, anchor-gated author awards.
+* **Run scripted scenarios**: cold-start backing (no activation threshold),
+  rating-spend (a vote is just rating spent, permanently), credibility
+  head-starts, anchor-gated author awards.
 * The Field line shows total rating; the log narrates every step.
 
 Chain reads and transactions go through the bundled `/rpc` relay, so no

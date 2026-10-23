@@ -7,7 +7,7 @@ independently. If this server ever disagrees with the chain, the chain wins.
 
 > **Deadlines are live, not fixed.** Every window this document mentions (the
 > stake lock, the funding-need period, the head-start window, the moderation
-> timelock, the council proposal lifetime, the movement cycle) is owner-settable
+> timelock, the council proposal lifetime, the movement cycle, the care round) is owner-settable
 > and read back from the chain. `GET /api/clock` returns the numbers currently
 > in force. The durations quoted below are the production defaults; the beta
 > chain runs the same rules on a ruler shortened 30× — see *The clock* at the
@@ -21,9 +21,11 @@ independently. If this server ever disagrees with the chain, the chain wins.
 - Voicing does **not** reduce voting weight: `effectiveScore` (the vote weight
   basis) is untouched, only `freeScore` (= `effectiveScore − bonded − voiced`)
   drops. So a backer keeps their field-level power while their Stasis backs the cow.
-- A lien cannot be spent, staked or double-committed. Withdrawing it (unvote,
-  stale reap) returns it to the free pool and subtracts the rating: rating never
-  floats free of the Stasis behind it.
+- A lien cannot be spent, staked or double-committed. A vote is **permanent**:
+  there is no unvote, so the lien never returns to the free pool. The rating it
+  carried stays behind the cow for good, and `freeScore` stays lower. The only
+  release in the system is a *labour* pledge (`releaseLabor`), because that is a
+  work commitment rather than a vote.
 
 ## A vote is just rating spent
 
@@ -37,13 +39,14 @@ independently. If this server ever disagrees with the chain, the chain wins.
 - There is **no dilution and no zero-sum pool**: nothing is ever trimmed from
   an older vote to make room. A vote simply fails (`InsufficientFree`) when you
   have spent more rating than you hold.
-- `unvote` (or a permissionless reap of a dormant lock) hands the rating straight
-  back. Voting and backing are the same action, so `boost` (whole cow) and
-  `vote` (content) are two entry points to one spend.
-- Stakes are the *other* commitment: they bond score (`Stasis.bond`) toward
-  activation and are not voice. A lien and a bond both draw on the same free
-  Stasis, so an account that has voiced everything may fall below the 100-Stasis
-  claim bond and must `unvote` to make room.
+- A vote cannot be taken back. Voting and backing are the same action, so
+  `boost` (whole cow) and `vote` (content) are two entry points to one permanent
+  spend.
+- Stakes are the *other* commitment: they bond score (`Stasis.bond`) as backing
+  and are not voice. There is no concentration cap — one account may back a cow
+  with all its free rating. A lien and a bond both draw on the same free Stasis,
+  so an account that has voiced everything may fall below the 100-Stasis claim
+  bond and must earn more room; it cannot unvote to make room.
 
 ## Content and authorship
 
@@ -58,11 +61,11 @@ independently. If this server ever disagrees with the chain, the chain wins.
 - Awards **transfer** a slice of the voter's voiced lien to the author; they never
   mint. Total supply is unchanged, the author receives real (now-free) Stasis, and
   the cow keeps the remaining rating. Awards pay only when the content is
-  protection-linked AND the cow's protection anchor is live (Active + fresh Care
-  quorum / Labor / need record). Self-votes are allowed and logged (`isSelf`),
-  kept honest by damping.
+  protection-linked AND the cow's protection anchor is live (some backing plus a
+  fresh Care quorum / Labor / need record). Self-votes are allowed and logged
+  (`isSelf`), kept honest by damping.
 - Content with no vote/heartbeat inside `contentDormantWindow` (180d) goes
-  dormant: new votes revert, old locks become reapable.
+  dormant: new votes revert, and the rating already spent stays spent.
 
 ## Labor and care add to the cow
 
@@ -80,18 +83,49 @@ independently. If this server ever disagrees with the chain, the chain wins.
   permissionless). Early exits follow the existing penalty curve × tier
   multiplier. Top-ups must keep the tier.
 
+## Two facts, not a status ladder
+
+- **`verified`** — proof of hoof. The first executed `Care`, `Revenue`, `Sale` or
+  `Death` claim proves a real animal stands behind the record. `Existence`,
+  `FundingNeed` and `Labor` do not: a project can have those too.
+- **`deceased`** — the real animal has died. Death blocks only *new care and
+  funding claims*. Votes, stakes, posts and transfers all continue, and the
+  record is displayed as a **Memorial**.
+- The three states shown are therefore **Project** (not verified), **Living
+  real** (verified, not deceased) and **Memorial** (deceased). There is no
+  activation threshold and no self-sustaining rank; a cow is live at mint.
+- Care money is **verified-living-only**: only a cow that is `verified &&
+  !deceased` may receive a care pool or redeem care. The offline-sale override
+  (`realWorldTransfer`) also requires a living real cow. Projects keep the full
+  rating economy.
+
 ## Protection anchor and payoffs
 
-- Anchor = cow Active AND (Care quorum < 90d OR Labor executed < 90d OR need
-  record < 90d). All Stasis gains (labor, solver, cycle) and all ETH releases
-  (care earmarks, withdrawals, care redemption, cause spends) require a live
-  anchor and/or cite an executed claim id as proof. Author awards do not mint —
-  they transfer the voter's lien.
+- Anchor = not deceased, some backing, AND (Care quorum < 90d OR Labor executed
+  < 90d OR need record < 90d). All Stasis gains (labor, solver, cycle) and all
+  ETH releases (care earmarks, withdrawals, care redemption, cause spends)
+  require a live anchor and/or cite an executed claim id as proof. Author awards
+  do not mint — they transfer the voter's lien.
 - FundingNeed quorum is 2; solver awards need a corroborator other than the
   solver. Large ETH releases need a prior-block `approveSpend`.
+- `need` is a live number, not a rank: above zero means the project needs help,
+  zero means it is covered, and it can flip back next period. The first time a
+  cow that once had a need reaches zero it counts toward `cowsEverCovered`.
 - The movement cycle measures protection-weighted deltas (care quorums, labor
-  hours, graduations, cows; backing is a minor term). Backing-only growth moves
-  ~zero, so no credit exists without protection.
+  hours, cows ever covered, backed cows; backing is a minor term). Backing-only
+  growth moves ~zero, so no credit exists without protection.
+
+## The automatic care round
+
+- Once per `carePeriod`, `GeneralPool.runCareRound()` may be triggered by anyone.
+  It earmarks a fixed share (`careTitheBps`, default 20%) of the pool's
+  **uncommitted** ETH across eligible cows, pro rata to their **rating**.
+- Eligibility is `verified && !deceased`, a positive attested need, a live
+  protection anchor and at least some rating. A cow's allocation is capped by
+  `need × careRateWei − carePoolOf[cow]`; the remainder stays uncommitted for the
+  next round. There is no floor and no per-cow ceiling in v0.
+- Rating selects the *recipient*; need says *how much is enough*. The round only
+  earmarks. ETH leaves solely through `redeemCare`, which burns Stasis.
 
 ## Trending
 
@@ -134,10 +168,11 @@ a reversible server visibility flag off an executed on-chain proposal
 stops seeing them, and a counter-proposal (or the herd council) can appeal.
 Tune via `Moderation.setPolicy`.
 
-Hiding also **freezes the content on-chain**: hidden liens cannot be unvoted, and
-anyone may then call `CowRating.slashContent(key, batch)` to burn up to
-`moderationSlashBps` (50%) of each voter's lien, destroying the rating it carried
-with it. Restoring unfreezes the survivors; already-burned Stasis is not refunded.
+Hiding also **freezes the content on-chain**: hidden liens cannot be released
+(votes are permanent anyway), and anyone may then call
+`CowRating.slashContent(key, batch)` to burn up to `moderationSlashBps` (50%) of
+each voter's lien, destroying the rating it carried with it. Restoring unfreezes
+the survivors; already-burned Stasis is not refunded.
 This is the on-chain cost of backing a fraud — the deterrent that makes voice
 expensive to waste.
 
@@ -150,11 +185,11 @@ number is what moves.
 
 - `CowRating.setTimings(...)` moves every progression deadline at once: the
   stake lock, the funding-need period, the three protection-anchor windows,
-  the head-start window, the labour lock, both conviction tiers, the activity
-  decay, the content dormancy and the zero-streak count.
+  the head-start window, the labour lock, both conviction tiers and the activity
+  decay.
 - `Stasis.setDecayWindows(...)` moves the reputation-fade windows.
-- `GeneralPool.setCycle` / `setGasRebate`, `Moderation.setPolicy` and
-  `HerdCouncil.setDurationLimits` move the cadence windows.
+- `GeneralPool.setCycle` / `setGasRebate` / `setCareRound`, `Moderation.setPolicy`
+  and `HerdCouncil.setDurationLimits` move the cadence windows.
 
 `scripts/timings.js` is the single table of both profiles. The beta profile is
 the production profile divided by 30 — one beta day is one production month —

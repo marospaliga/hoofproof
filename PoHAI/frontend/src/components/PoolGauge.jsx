@@ -28,13 +28,13 @@ export default function PoolGauge({ compact = false }) {
   if (!pool) return <div className="pool-gauge muted">pool…</div>;
 
   const rows = [
-    ["active", pool.activeCows],
+    ["backed", pool.backedCows],
     ["rating", pool.rating],
     ["backing", pool.backing],
     ["stasis", pool.totalScore],
     ["labor", `${pool.laborHours}h`],
     ["quorums", pool.careQuorums],
-    ["graduated", pool.solved],
+    ["covered", pool.covered],
   ];
 
   if (compact) {

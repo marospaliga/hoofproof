@@ -93,30 +93,34 @@ describe("Protection-gated rating (P1)", function () {
       expect(await stasis.freeScore(alice.address)).to.equal(0);
     });
 
-    it("frees rating immediately on unvote", async function () {
+    it("spends rating permanently — there is no unvote", async function () {
       const { cowRating, stasis, alice, tokenId } = await loadFixture(fixture);
-      const a = hash("post-unvote");
+      const a = hash("post-vote");
       await cowRating.connect(alice).vote(tokenId, 2, a, 1_000);
-      const locked = await cowRating.voiceLocked(alice.address);
-      expect(locked).to.equal(1_000);
-
       const key = await cowRating.contentKeyOf(tokenId, 2, a);
-      await cowRating.connect(alice).unvote(key);
-      expect(await cowRating.voiceLocked(alice.address)).to.equal(0);
-      expect(await cowRating.contentRatingOf(tokenId, 2, a)).to.equal(0);
-      expect(await stasis.freeScore(alice.address)).to.equal(10_000);
+
+      expect(await cowRating.voiceLocked(alice.address)).to.equal(1_000);
+      expect(await stasis.freeScore(alice.address)).to.equal(9_000);
+
+      // The only release in the system is a labour pledge, not a vote.
+      await expect(
+        cowRating.connect(alice).releaseLabor(key)
+      ).to.be.revertedWithCustomError(cowRating, "NotLaborLock");
+
+      expect(await cowRating.voiceLocked(alice.address)).to.equal(1_000);
+      expect(await cowRating.contentRatingOf(tokenId, 2, a)).to.equal(1_000);
+      expect(await stasis.freeScore(alice.address)).to.equal(9_000);
     });
   });
 
   describe("dormancy", function () {
-    it("freezes votes on stale content but allows reaping", async function () {
+    it("freezes votes on stale content; a spent vote stays spent", async function () {
       const { cowRating, owner, alice, bob, tokenId } = await loadFixture(fixture);
       await cowRating.connect(owner).setContentDormantWindow(DAY);
 
       const post = hash("stale-post");
       await cowRating.connect(alice).registerContent(tokenId, 2, post, false);
       await cowRating.connect(alice).vote(tokenId, 2, post, 100);
-      const key = await cowRating.contentKeyOf(tokenId, 2, post);
       expect(await cowRating.voiceLocked(alice.address)).to.be.greaterThan(0);
 
       await time.increase(2 * DAY);
@@ -124,8 +128,9 @@ describe("Protection-gated rating (P1)", function () {
         cowRating.connect(bob).vote(tokenId, 2, post, 100)
       ).to.be.revertedWithCustomError(cowRating, "DormantContent");
 
-      await cowRating.reapStale(alice.address, [key]);
-      expect(await cowRating.voiceLocked(alice.address)).to.equal(0);
+      // Dormancy is a freeze, not a refund: the rating already spent on the
+      // content remains spent, exactly as a vote always does.
+      expect(await cowRating.voiceLocked(alice.address)).to.equal(100);
     });
   });
 
@@ -214,7 +219,7 @@ describe("Protection-gated rating (P1)", function () {
   });
 
   describe("protection anchor", function () {
-    it("is dead on fresh cows and live after activation plus care quorum", async function () {
+    it("is dead on fresh cows and live after backing plus care quorum", async function () {
       const { cowRating, attestation, raters, tokenId } = await loadFixture(fixture);
       expect(await cowRating.protectionAnchorLive(tokenId)).to.equal(false);
       await activate(cowRating, raters, tokenId);

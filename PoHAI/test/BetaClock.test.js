@@ -24,7 +24,6 @@ const BETA = PROFILES.beta;
 const PROD = PROFILES.production;
 
 const Kind = { FundingNeed: 5 };
-const Status = { Inert: 0n, Active: 1n, SelfSustaining: 2n, Memorial: 3n };
 
 // Field order must match `CowRating.Timings` exactly.
 function ratingStruct(p) {
@@ -40,7 +39,6 @@ function ratingStruct(p) {
     p.cowRating.tierCommit2,
     p.cowRating.momentumDecay,
     p.cowRating.contentDormantWindow,
-    p.cowRating.zeroStreakRequired,
   ];
 }
 
@@ -63,6 +61,10 @@ async function setClock(sys, profile) {
   await sys.generalPool.setGasRebate(
     await sys.generalPool.gasRebateBase(),
     profile.generalPool.gasRebatePeriod
+  );
+  await sys.generalPool.setCareRound(
+    await sys.generalPool.careTitheBps(),
+    profile.generalPool.carePeriod
   );
   await sys.moderation.setPolicy(
     await sys.moderation.dominanceBps(),
@@ -115,6 +117,7 @@ describe("the beta clock", function () {
         [PROD.stasis.idleDecayWindow, BETA.stasis.idleDecayWindow],
         [PROD.generalPool.cyclePeriod, BETA.generalPool.cyclePeriod],
         [PROD.generalPool.gasRebatePeriod, BETA.generalPool.gasRebatePeriod],
+        [PROD.generalPool.carePeriod, BETA.generalPool.carePeriod],
         [PROD.moderation.fastPathDelay, BETA.moderation.fastPathDelay],
         [PROD.moderation.challengeWindow, BETA.moderation.challengeWindow],
         [PROD.herdCouncil.minDuration, BETA.herdCouncil.minDuration],
@@ -125,10 +128,6 @@ describe("the beta clock", function () {
       }
     });
 
-    it("leaves counts alone — a period count is not a duration", function () {
-      expect(BETA.cowRating.zeroStreakRequired).to.equal(PROD.cowRating.zeroStreakRequired);
-    });
-
     it("reads back exactly what it was given", async function () {
       const sys = await loadFixture(fixture);
       await setClock(sys, BETA);
@@ -137,10 +136,10 @@ describe("the beta clock", function () {
       expect(await sys.cowRating.needPeriod()).to.equal(BETA.cowRating.needPeriod);
       expect(await sys.cowRating.careWindow()).to.equal(BETA.cowRating.careWindow);
       expect(await sys.cowRating.contentDormantWindow()).to.equal(BETA.cowRating.contentDormantWindow);
-      expect(await sys.cowRating.zeroStreakRequired()).to.equal(BETA.cowRating.zeroStreakRequired);
       expect(await sys.stasis.idleGrace()).to.equal(BETA.stasis.idleGrace);
       expect(await sys.generalPool.cyclePeriod()).to.equal(BETA.generalPool.cyclePeriod);
       expect(await sys.generalPool.gasRebatePeriod()).to.equal(BETA.generalPool.gasRebatePeriod);
+      expect(await sys.generalPool.carePeriod()).to.equal(BETA.generalPool.carePeriod);
       expect(await sys.moderation.challengeWindow()).to.equal(BETA.moderation.challengeWindow);
       expect(await sys.herdCouncil.maxDuration()).to.equal(BETA.herdCouncil.maxDuration);
     });
@@ -241,22 +240,22 @@ describe("the beta clock", function () {
       expect((await cowRating.funding(tokenId)).need).to.equal(0);
     });
 
-    it("reaches SelfSustaining in three days instead of three months", async function () {
+    it("counts a cow as covered the first time its need reaches zero", async function () {
       const sys = await loadFixture(fixture);
-      const { attestation, cowNFT, cowRating, raters, alice, tokenId } = sys;
+      const { attestation, cowRating, raters, alice, tokenId } = sys;
       await setClock(sys, BETA);
       await activate(cowRating, raters, tokenId);
 
       await post(attestation, raters[0], tokenId, Kind.FundingNeed, 500, alice.address);
       await post(attestation, raters[1], tokenId, Kind.FundingNeed, 500, alice.address);
+      expect(await cowRating.cowsEverCovered()).to.equal(0);
 
-      for (let period = 0; period < BETA.cowRating.zeroStreakRequired; period++) {
-        await time.increase(BETA.cowRating.needPeriod + 60);
-        await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
-        await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
-      }
+      await time.increase(BETA.cowRating.needPeriod + 60);
+      await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
+      await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
 
-      expect(await cowNFT.statusOf(tokenId)).to.equal(Status.SelfSustaining);
+      expect(await cowRating.cowsEverCovered()).to.equal(1);
+      expect((await cowRating.funding(tokenId)).need).to.equal(0);
     });
 
     it("starts fading an idle rating after six idle days", async function () {
@@ -298,8 +297,7 @@ describe("the beta clock", function () {
       await setClock(sys, BETA);
 
       // Caps, ratios and quorums are policy, not calendar.
-      expect(await cowRating.activationThreshold()).to.equal(1_000n);
-      expect(await cowRating.concentrationCapBps()).to.equal(2_000n);
+      expect(await cowRating.transferBackingFloor()).to.equal(1_000n);
       expect(await cowRating.earlyUnlockPenaltyBps()).to.equal(5_000n);
       expect(await generalPool.backerShareBps()).to.equal(5_000n);
       expect(await moderation.dominanceBps()).to.equal(6_600n);

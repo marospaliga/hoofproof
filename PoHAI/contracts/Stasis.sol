@@ -312,8 +312,9 @@ contract Stasis is Ownable {
         emit Voiced(account, amount);
     }
 
-    /// @notice Release a lien (unvote / dilution / stale reap). The score
-    ///         returns to the free pool; it is not minted or burned.
+    /// @notice Release a labour lien (`releaseLabor`). Ordinary votes are
+    ///         permanent; their Stasis never returns to the free pool.
+    ///         The released score is not minted or burned.
     function unvoice(address account, uint256 amount) external onlyModule {
         if (voiced[account] < amount) revert InsufficientVoiced();
         voiced[account] -= amount;

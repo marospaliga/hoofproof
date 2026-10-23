@@ -16,7 +16,7 @@ const Kind = {
 };
 
 const State = { Open: 0n, Executed: 1n, Disputed: 2n, Refuted: 3n };
-const Status = { Inert: 0n, Active: 1n, SelfSustaining: 2n, Memorial: 3n };
+const PIGS = ethers.encodeBytes32String("pigs");
 
 async function activate(cowRating, raters, tokenId) {
   for (const rater of raters.slice(0, 5)) {
@@ -70,17 +70,30 @@ describe("Attestation", function () {
     ).to.be.revertedWithCustomError(attestation, "AlreadySupported");
   });
 
-  it("records a death once three bonded raters agree, and freezes the cow", async function () {
+  it("records a death once three bonded raters agree, without freezing the cow", async function () {
     const { attestation, cowNFT, cowRating, raters, tokenId } = await loadFixture(fixture);
     await activate(cowRating, raters, tokenId);
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
+    expect(await cowNFT.isDeceased(tokenId)).to.equal(false);
 
     await post(attestation, raters[0], tokenId, Kind.Death, 0, ZERO);
     await post(attestation, raters[1], tokenId, Kind.Death, 0, ZERO);
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
+    expect(await cowNFT.isDeceased(tokenId)).to.equal(false);
 
     await post(attestation, raters[2], tokenId, Kind.Death, 0, ZERO);
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Memorial);
+    expect(await cowNFT.isDeceased(tokenId)).to.equal(true);
+    expect(await cowNFT.isVerified(tokenId)).to.equal(true);
+
+    // Death is a fact, not a lock: rating continues.
+    await cowRating.connect(raters[3]).boost(tokenId, PIGS, 100);
+    expect(await cowRating.ratingOf(tokenId)).to.be.greaterThan(0);
+
+    // But new care and funding claims are closed on a memorial.
+    await expect(
+      post(attestation, raters[0], tokenId, Kind.Care, 0, ZERO)
+    ).to.be.revertedWithCustomError(attestation, "IsDeceased");
+    await expect(
+      post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, raters[0].address)
+    ).to.be.revertedWithCustomError(attestation, "IsDeceased");
   });
 
   it("applies an offline sale without charging the rated-handshake cost", async function () {
@@ -93,6 +106,8 @@ describe("Attestation", function () {
     }
 
     expect(await cowNFT.ownerOf(tokenId)).to.equal(stranger.address);
+    // A real sale is proof of hoof as well as a move.
+    expect(await cowNFT.isVerified(tokenId)).to.equal(true);
     // Reality already happened — no rating is consumed by the move itself.
     expect(await stasis.effectiveScore(stranger.address)).to.equal(before);
   });
@@ -137,10 +152,10 @@ describe("Attestation", function () {
     expect((await attestation.claims(id)).state).to.equal(State.Open);
   });
 
-  it("walks a project to SelfSustaining as its funding need reaches zero", async function () {
+  it("counts a cow as covered the first time its need reaches zero", async function () {
     const { attestation, cowNFT, stasis, cowRating, raters, alice, tokenId } = await loadFixture(fixture);
     await activate(cowRating, raters, tokenId);
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
+    expect(await cowRating.cowsEverCovered()).to.equal(0);
 
     // Month 0: the project still needs 500 per period (quorum is 2).
     await post(attestation, raters[0], tokenId, Kind.FundingNeed, 500, alice.address);
@@ -155,16 +170,21 @@ describe("Attestation", function () {
     const after = await stasis.effectiveScore(alice.address);
 
     expect(after - before).to.equal(50); // 10% of the 500 that vanished
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Active);
+    expect((await cowRating.funding(tokenId)).need).to.equal(0);
+    expect(await cowRating.cowsEverCovered()).to.equal(1);
 
+    // A later period at zero does not count the same cow twice.
     await time.increase(30 * DAY);
     await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
     await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
-    await time.increase(30 * DAY);
-    await post(attestation, raters[0], tokenId, Kind.FundingNeed, 0, alice.address);
-    await post(attestation, raters[1], tokenId, Kind.FundingNeed, 0, alice.address);
+    expect(await cowRating.cowsEverCovered()).to.equal(1);
 
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.SelfSustaining);
+    // Need can come back: there is no terminal status.
+    await time.increase(30 * DAY);
+    await post(attestation, raters[0], tokenId, Kind.FundingNeed, 300, alice.address);
+    await post(attestation, raters[1], tokenId, Kind.FundingNeed, 300, alice.address);
+    expect((await cowRating.funding(tokenId)).need).to.equal(300);
+    expect(await cowNFT.isDeceased(tokenId)).to.equal(false);
   });
 
   it("skips the solver award for solo self-reports when corroboration is required", async function () {

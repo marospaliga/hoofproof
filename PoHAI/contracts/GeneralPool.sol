@@ -51,6 +51,17 @@ contract GeneralPool is Ownable {
 
     // ---- care pool
     mapping(uint256 => uint256) public carePoolOf;
+    /// @notice Sum of every `carePoolOf` balance. The care round spends only
+    ///         the pool's *uncommitted* ETH, so this is subtracted first.
+    uint256 public totalCarePool;
+
+    // ---- automatic care round
+    /// @notice Share of uncommitted pool ETH earmarked per round.
+    uint256 public careTitheBps = 2_000; // 20%
+    uint256 public carePeriod = 7 days;
+    uint256 public lastCareAt;
+    /// @notice Gas bound: never scan/allocate more than this many cows per round.
+    uint256 public maxCareCows = 200;
 
     // ---- platform value index
     struct Epoch {
@@ -61,8 +72,8 @@ contract GeneralPool is Ownable {
         uint256 stasis;
         uint256 laborHours;
         uint256 careQuorums;
-        uint256 solved;
-        uint256 activeCows;
+        uint256 covered;
+        uint256 backedCows;
     }
 
     mapping(address => uint256) public lastGasClaim;
@@ -103,20 +114,20 @@ contract GeneralPool is Ownable {
     // Baseline of the field at the previous settle (priming settles set it).
     uint256 private _snapBacking;
     uint256 private _snapRating;
-    uint256 private _snapActiveCows;
+    uint256 private _snapBackedCows;
     uint256 private _snapLabor;
     uint256 private _snapCare;
-    uint256 private _snapSolved;
+    uint256 private _snapCovered;
 
     /// @notice Cycle movement weights (owner-tunable). Protection signals
     ///         dominate by default; raw backing is a minor term so a field
     ///         that trades without protecting moves ~zero.
     uint256 public weightBacking = 1;
     uint256 public weightRating = 1;
-    uint256 public weightActiveCow = 1_000;
+    uint256 public weightBackedCow = 1_000;
     uint256 public weightCareQuorum = 500;
     uint256 public weightLaborHour = 10;
-    uint256 public weightSolved = 2_000;
+    uint256 public weightCoveredCow = 2_000;
 
     /// @notice Releases above this must be approved in an earlier block
     ///         (deliberate two-step; multisig-ready).
@@ -143,7 +154,8 @@ contract GeneralPool is Ownable {
 
     event GasRebateClaimed(address indexed account, uint256 amount);
     event CareAllocated(uint256 indexed tokenId, uint256 amount);
-    event IndexSnapped(uint256 id, uint256 backing, uint256 rating, uint256 stasis, uint256 activeCows);
+    event IndexSnapped(uint256 id, uint256 backing, uint256 rating, uint256 stasis, uint256 backedCows);
+    event CareRound(uint256 at, uint256 budget, uint256 distributed, uint256 cows);
     event FundEventCreated(uint256 indexed id, address indexed creator, string metadataCid, uint256 goal);
     event FundContributed(uint256 indexed id, address indexed backer, uint256 amount, uint256 raised);
     event FundSpent(uint256 indexed id, address indexed to_, uint256 amount, uint256 spent);
@@ -178,6 +190,7 @@ contract GeneralPool is Ownable {
     error NotEventCreator();
     error CannotSpend();
     error CycleNotElapsed();
+    error CareNotElapsed();
     error NoAnchor();
     error NoProtection();
     error NoProof();
@@ -186,6 +199,7 @@ contract GeneralPool is Ownable {
     error AlreadyRedeemed();
     error CapExceeded();
     error NotCaller();
+    error NotLivingCow();
 
     /// @notice ETH per Stasis point: 0.001 ETH = 1e15 wei.
     uint256 public careRateWei = 1e15;
@@ -217,17 +231,24 @@ contract GeneralPool is Ownable {
     function setCycleWeights(
         uint256 backing,
         uint256 rating,
-        uint256 activeCow,
+        uint256 backedCow,
         uint256 careQuorum,
         uint256 laborHour,
-        uint256 solved
+        uint256 coveredCow
     ) external onlyOwner {
         weightBacking = backing;
         weightRating = rating;
-        weightActiveCow = activeCow;
+        weightBackedCow = backedCow;
         weightCareQuorum = careQuorum;
         weightLaborHour = laborHour;
-        weightSolved = solved;
+        weightCoveredCow = coveredCow;
+    }
+
+    /// @notice Owner tuning for the automatic care round.
+    function setCareRound(uint256 titheBps, uint256 period) external onlyOwner {
+        if (titheBps > BPS || period == 0) revert ZeroAmount();
+        careTitheBps = titheBps;
+        carePeriod = period;
     }
 
     function setSpendPolicy(uint256 threshold, uint256 minProtection) external onlyOwner {
@@ -271,8 +292,9 @@ contract GeneralPool is Ownable {
         uint256 rebate = gasRebateBase;
 
         uint256 balance = address(this).balance;
-        if (rebate == 0 || balance == 0) revert EmptyPool();
-        if (rebate > balance) rebate = balance;
+        uint256 uncommitted = balance > totalCarePool ? balance - totalCarePool : 0;
+        if (rebate == 0 || uncommitted == 0) revert EmptyPool();
+        if (rebate > uncommitted) rebate = uncommitted;
 
         lastGasClaim[msg.sender] = block.timestamp;
         (bool ok, ) = payable(msg.sender).call{value: rebate}("");
@@ -286,15 +308,87 @@ contract GeneralPool is Ownable {
     ///         ever leaves through the owner (who pays caretakers in reality);
     ///         the chain keeps the public commitment. Only for live protection
     ///         projects — no anchor, no earmark.
+    /// @dev Care rails are open only to a record with proof of hoof whose real
+    ///      animal is still alive. The rest of the rating economy stays open.
+    function _requireLiving(uint256 tokenId) internal view {
+        CowNFT nft = CowNFT(cowNFT);
+        if (!nft.isVerified(tokenId) || nft.isDeceased(tokenId)) revert NotLivingCow();
+    }
+
     function allocateCare(uint256 tokenId, uint256 amount, uint256 claimRef) external onlyOwner {
         if (amount == 0) revert ZeroAmount();
         if (address(this).balance < amount) revert EmptyPool();
+        _requireLiving(tokenId);
         if (!cowRating.protectionAnchorLive(tokenId)) revert NoAnchor();
         (bool executed, uint256 cow) = cowRating.attestationProof(claimRef);
         if (!executed || cow != tokenId) revert NoProof();
         carePoolOf[tokenId] += amount;
+        totalCarePool += amount;
         emit CareAllocated(tokenId, amount);
         emit CareAllocatedWithProof(tokenId, amount, claimRef);
+    }
+
+    /// @notice The automatic care round. Once per `carePeriod`, a fixed share
+    ///         of the pool's *uncommitted* ETH is earmarked across the cows the
+    ///         community rates highest, pro rata by rating. Need is a cap, not
+    ///         a weight: a well-rated cow with a small need gets its small need,
+    ///         and the rest stays in the pool for the next round. No floor, no
+    ///         per-cow ceiling — rating is the only selector.
+    ///
+    ///         Permissionless: anyone may trigger it, but it can never run more
+    ///         often than the period. ETH still only leaves through `redeemCare`.
+    function runCareRound() external {
+        if (lastCareAt != 0 && block.timestamp < lastCareAt + carePeriod) revert CareNotElapsed();
+        lastCareAt = block.timestamp;
+
+        uint256 balance = address(this).balance;
+        uint256 uncommitted = balance > totalCarePool ? balance - totalCarePool : 0;
+        uint256 budget = (uncommitted * careTitheBps) / BPS;
+        if (budget == 0) {
+            emit CareRound(block.timestamp, 0, 0, 0);
+            return;
+        }
+
+        CowNFT nft = CowNFT(cowNFT);
+        uint256 supply = nft.nextTokenId();
+        uint256 cap = maxCareCows;
+        uint256[] memory ids = new uint256[](cap);
+        uint256[] memory weights = new uint256[](cap);
+        uint256[] memory rooms = new uint256[](cap);
+        uint256 n;
+        uint256 totalWeight;
+
+        for (uint256 id = 1; id < supply && n < cap; id++) {
+            if (!nft.isVerified(id) || nft.isDeceased(id)) continue;
+            (uint256 need, , , ) = cowRating.funding(id);
+            if (need == 0) continue;
+            // Need is denominated in Stasis points; convert it to the maximum
+            // ETH it can ever release at the current care rate.
+            uint256 needWei = need * careRateWei;
+            uint256 already = carePoolOf[id];
+            if (already >= needWei) continue;
+            if (!cowRating.protectionAnchorLive(id)) continue;
+            uint256 weight = cowRating.ratingOf(id);
+            if (weight == 0) continue;
+            ids[n] = id;
+            weights[n] = weight;
+            rooms[n] = needWei - already;
+            totalWeight += weight;
+            n++;
+        }
+
+        uint256 distributed;
+        if (totalWeight > 0) {
+            for (uint256 i = 0; i < n; i++) {
+                uint256 share = (budget * weights[i]) / totalWeight;
+                uint256 amount = share > rooms[i] ? rooms[i] : share;
+                if (amount == 0) continue;
+                carePoolOf[ids[i]] += amount;
+                distributed += amount;
+            }
+        }
+        totalCarePool += distributed;
+        emit CareRound(block.timestamp, budget, distributed, n);
     }
 
     /// @notice The native balance used for real-world disbursements, always
@@ -333,10 +427,13 @@ contract GeneralPool is Ownable {
         address subject = att.claimSubject(claimRef);
         if (msg.sender != subject && CowNFT(cowNFT).ownerOf(tokenId) != msg.sender) revert NotCaller();
 
+        // Care money is verified-living-only: a project cannot hold or redeem it,
+        // and death closes the care rail even though the record stays usable.
+        _requireLiving(tokenId);
         if (!cowRating.protectionAnchorLive(tokenId)) revert NoAnchor();
 
         uint256 rating = cowRating.ratingOf(tokenId);
-        (uint256 need, , ) = cowRating.funding(tokenId);
+        (uint256 need, , , ) = cowRating.funding(tokenId);
         uint256 cap = need > 0 ? need : rating;
         if (cap > rating) cap = rating;
         if (stasisAmount > cap) revert CapExceeded();
@@ -347,6 +444,7 @@ contract GeneralPool is Ownable {
         careRedeemed[claimRef] = true;
         stasis.spend(msg.sender, stasisAmount, "care-redeem");
         carePoolOf[tokenId] -= ethOut;
+        totalCarePool -= ethOut;
         _requireSpendApproval(0, ethOut, msg.sender, claimRef);
 
         (bool ok, ) = payable(msg.sender).call{value: ethOut}("");
@@ -359,24 +457,24 @@ contract GeneralPool is Ownable {
     function platformMetrics()
         public
         view
-        returns (uint256 backing, uint256 rating, uint256 stasisTotal, uint256 activeCows)
+        returns (uint256 backing, uint256 rating, uint256 stasisTotal, uint256 backedCows)
     {
         backing = cowRating.totalBacking();
         rating = cowRating.totalRatingPoints();
         stasisTotal = stasis.totalScore();
-        activeCows = cowRating.activeCowCount();
+        backedCows = cowRating.backedCowCount();
     }
 
     /// @notice Protection-side aggregates: attested labor hours, executed care
-    ///         quorums and graduated (SelfSustaining) cows.
+    ///         quorums and cows that once needed help and reached zero.
     function protectionMetrics()
         public
         view
-        returns (uint256 laborHours, uint256 careQuorums, uint256 solved)
+        returns (uint256 laborHours, uint256 careQuorums, uint256 covered)
     {
         laborHours = cowRating.totalLaborHours();
         careQuorums = cowRating.careQuorumCount();
-        solved = cowRating.selfSustainingCount();
+        covered = cowRating.cowsEverCovered();
     }
 
     /// @notice Simple composite "value of the whole platform" figure.
@@ -389,9 +487,9 @@ contract GeneralPool is Ownable {
     /// @notice Chess-window snapshot of the platform's health. Anyone may
     ///         call; each snapshot is cheap and history is immutable.
     function snapshotIndex() external {
-        (uint256 backing, uint256 rating, uint256 stasisTotal, uint256 activeCows) =
+        (uint256 backing, uint256 rating, uint256 stasisTotal, uint256 backedCows) =
             platformMetrics();
-        (uint256 laborHours, uint256 careQuorums, uint256 solved) = protectionMetrics();
+        (uint256 laborHours, uint256 careQuorums, uint256 covered) = protectionMetrics();
         indexHistory.push(
             Epoch({
                 id: indexHistory.length + 1,
@@ -401,11 +499,11 @@ contract GeneralPool is Ownable {
                 stasis: stasisTotal,
                 laborHours: laborHours,
                 careQuorums: careQuorums,
-                solved: solved,
-                activeCows: activeCows
+                covered: covered,
+                backedCows: backedCows
             })
         );
-        emit IndexSnapped(indexHistory.length, backing, rating, stasisTotal, activeCows);
+        emit IndexSnapped(indexHistory.length, backing, rating, stasisTotal, backedCows);
     }
 
     function epochCount() external view returns (uint256) {
@@ -515,23 +613,23 @@ contract GeneralPool is Ownable {
     ///         starts with the following cycle. Anyone may call it.
     ///
     ///         Movement is protection-weighted: executed care quorums, attested
-    ///         labor hours and graduated cows dominate; raw backing is a minor
+    ///         labor hours and cows ever covered dominate; raw backing is a minor
     ///         term. A field that trades without protecting moves ~zero, so no
     ///         credit exists to thank anyone with.
     function settleCycle() external {
         if (lastCycleAt != 0 && block.timestamp < lastCycleAt + cyclePeriod) revert CycleNotElapsed();
 
-        (uint256 backing, uint256 rating, , uint256 activeCows) = platformMetrics();
-        (uint256 laborHours, uint256 careQuorums, uint256 solved) = protectionMetrics();
+        (uint256 backing, uint256 rating, , uint256 backedCows) = platformMetrics();
+        (uint256 laborHours, uint256 careQuorums, uint256 covered) = protectionMetrics();
 
         // ---- first call prims the baseline (no credit yet)
         if (!_cyclePrimed) {
             _snapBacking = backing;
             _snapRating = rating;
-            _snapActiveCows = activeCows;
+            _snapBackedCows = backedCows;
             _snapLabor = laborHours;
             _snapCare = careQuorums;
-            _snapSolved = solved;
+            _snapCovered = covered;
             _cyclePrimed = true;
             _snapshotRaterActivity();
             lastCycleAt = block.timestamp;
@@ -542,10 +640,10 @@ contract GeneralPool is Ownable {
         uint256 movement;
         if (backing > _snapBacking) movement += (backing - _snapBacking) * weightBacking;
         if (rating > _snapRating) movement += (rating - _snapRating) * weightRating;
-        if (activeCows > _snapActiveCows) movement += (activeCows - _snapActiveCows) * weightActiveCow;
+        if (backedCows > _snapBackedCows) movement += (backedCows - _snapBackedCows) * weightBackedCow;
         if (careQuorums > _snapCare) movement += (careQuorums - _snapCare) * weightCareQuorum;
         if (laborHours > _snapLabor) movement += (laborHours - _snapLabor) * weightLaborHour;
-        if (solved > _snapSolved) movement += (solved - _snapSolved) * weightSolved;
+        if (covered > _snapCovered) movement += (covered - _snapCovered) * weightCoveredCow;
 
         uint256 creditPool = (movement * creditRatioBps) / BPS;
         if (creditPool > maxCycleCredit) creditPool = maxCycleCredit;
@@ -610,10 +708,10 @@ contract GeneralPool is Ownable {
         // ---- store the new baseline for the next cycle
         _snapBacking = backing;
         _snapRating = rating;
-        _snapActiveCows = activeCows;
+        _snapBackedCows = backedCows;
         _snapLabor = laborHours;
         _snapCare = careQuorums;
-        _snapSolved = solved;
+        _snapCovered = covered;
         lastCycleAt = block.timestamp;
         lastCycleMovement = movement;
         lastCycleCredit = creditPool;

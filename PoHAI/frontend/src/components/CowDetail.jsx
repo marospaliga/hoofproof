@@ -10,7 +10,6 @@ import {
   boost,
   voteContent,
   registerContent,
-  unvote,
   previewVote,
   votePreviewInputs,
   myReputation,
@@ -656,11 +655,10 @@ function Threads({ cow, contracts, account, refresh, notify }) {
   );
 }
 
-// Voice meter: a voice is rating committed, so what is locked is simply the
-// rating you have spent. Unvote to hand it straight back.
-function VoiceMeter({ contracts, account, rep, notify }) {
+// Voice meter: a vote permanently spends rating. There is no unvote. The only
+// release in the system is a labour pledge, which returns after its lock.
+function VoiceMeter({ contracts, account, rep }) {
   const [locks, setLocks] = useState(null);
-  const [busy, setBusy] = useState("");
 
   async function reload() {
     if (!contracts || !account) return;
@@ -676,30 +674,15 @@ function VoiceMeter({ contracts, account, rep, notify }) {
   const locked = rep.voiceLocked ?? locks?.locked ?? 0;
   const score = rep.score ?? 0;
   const pct = score > 0 ? Math.min(100, Math.round((locked / score) * 100)) : 0;
-  const over = score > 0 && locked > score;
-
-  async function unvoteKey(key) {
-    setBusy(key);
-    try {
-      await unvote(contracts, key);
-      notify("Voice freed.");
-      setLocks(null);
-    } catch (err) {
-      notify(friendlyError(err), "error");
-    } finally {
-      setBusy("");
-    }
-  }
 
   if (!contracts) return null;
   return (
     <div className="mt12 panel inset">
       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
         <span className="muted" style={{ fontSize: 12 }}>
-          🗣️ {locked} of {score} rating committed as voice
-          {over ? " — more committed than you hold (a lien travels with the rating)" : ""}
+          🗣️ {locked} of {score} rating permanently spent on votes and work
         </span>
-        <button className="thumb" onClick={reload} title="Refresh voice locks">↻</button>
+        <button className="thumb" onClick={reload} title="Refresh locks">↻</button>
       </div>
       <div className="meter mt4">
         <div className="meter-fill" style={{ width: `${pct}%` }} />
@@ -711,9 +694,6 @@ function VoiceMeter({ contracts, account, rep, notify }) {
               <span className="muted" title={k}>
                 {k.slice(0, 12)}… · {locks.amounts[i]}
               </span>
-              <button className="thumb" disabled={!!busy} onClick={() => unvoteKey(k)}>
-                {busy === k ? "…" : "unvote"}
-              </button>
             </div>
           ))}
           {locks.keys.length > 8 && (
@@ -804,7 +784,7 @@ function RatingPanels({ cow }) {
               )}
               <div className="muted mt12" style={{ fontSize: 12 }}>
                 Logged vote weight counts every vote ever cast here; the live rating is lower
-                wherever points have since been unvoted or transferred to a documenter.
+                wherever points have since been slashed.
               </div>
             </>
           )}
@@ -1027,7 +1007,6 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   // recognized contributors (owner, staker, protection-active) attest.
   const isOwner = !!(account && cow.onChainOwner && account.toLowerCase() === cow.onChainOwner.toLowerCase());
   const [myStake, setMyStake] = useState(null);
-  const [capInfo, setCapInfo] = useState(null);
   useEffect(() => {
     let alive = true;
     if (!contracts || !account || !tokenId) {
@@ -1036,16 +1015,9 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
     }
     (async () => {
       try {
-        const [mine, total, threshold, capBps] = await Promise.all([
-          contracts.cowRating.stakeOf(tokenId, account),
-          contracts.cowRating.totalStaked(tokenId),
-          contracts.cowRating.activationThreshold(),
-          contracts.cowRating.concentrationCapBps(),
-        ]);
+        const mine = await contracts.cowRating.stakeOf(tokenId, account);
         if (!alive) return;
-        const base = Number(total) < Number(threshold) ? Number(threshold) : Number(total);
         setMyStake(Number(mine));
-        setCapInfo({ cap: Math.floor((base * Number(capBps)) / 10000), total: Number(total) });
       } catch {
         if (alive) setMyStake(null);
       }
@@ -1084,7 +1056,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
     rep.score && fieldTotal !== null
       ? previewVote(
           {
-            free: rep.free ?? Math.max(rep.score - rep.bonded, 0),
+            free: rep.free ?? Math.max(rep.score - (rep.bonded ?? 0) - (rep.voiced ?? 0), 0),
             locked: rep.voiceLocked ?? 0,
             total: fieldTotal,
           },
@@ -1097,7 +1069,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
   const seededAmount = useRef(false);
   useEffect(() => {
     if (!rep.score) return;
-    const free = rep.free ?? Math.max(rep.score - rep.bonded, 0);
+    const free = rep.free ?? Math.max(rep.score - (rep.bonded ?? 0) - (rep.voiced ?? 0), 0);
     if (!seededAmount.current) {
       seededAmount.current = true;
       setVoteAmount(Math.min(100, Math.max(0, free)));
@@ -1173,7 +1145,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
             <div style={{ fontSize: 52 }}>{cow.image || "🐄"}</div>
             <h2 style={{ margin: "6px 0" }}>
               {cow.name}{" "}
-              <span className={`badge status-${cow.statusName}`}>{cow.statusName}</span>
+              <span className={`badge status-${cow.stateKey}`}>{cow.statusName}</span>
             </h2>
             <div className="muted">
               {cow.breed}
@@ -1200,19 +1172,24 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
 
               <div className="voice-chips">
                 <span className="chip">
-                  Stasis <b>{rep.score}</b>
-                  <span className="muted"> free {rep.free ?? Math.max(rep.score - rep.bonded, 0)}</span>
+                  <b>{rep.score}</b> Stasis
+                  <span className="muted">
+                    {" "}− {rep.bonded ?? 0} staked − {rep.voiced ?? 0} voted ={" "}
+                    <b>{rep.free ?? Math.max(rep.score - (rep.bonded ?? 0) - (rep.voiced ?? 0), 0)}</b> free
+                  </span>
                 </span>
-                <span className="chip">
-                  spent <b>{rep.voiceLocked ?? 0}</b> rating
-                </span>
+                {(rep.voiced ?? 0) > (rep.voiceLocked ?? 0) && (
+                  <span className="chip">
+                    locked in work <b>{(rep.voiced ?? 0) - (rep.voiceLocked ?? 0)}</b>
+                  </span>
+                )}
               </div>
 
               <div className="actions rate-actions">
                 <RatingAmount
                   value={voteAmount}
                   onChange={setVoteAmount}
-                  free={rep.free ?? Math.max(rep.score - rep.bonded, 0)}
+                  free={rep.free ?? Math.max(rep.score - (rep.bonded ?? 0) - (rep.voiced ?? 0), 0)}
                 />
                 <button
                   className="primary"
@@ -1272,8 +1249,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
               setOpenId={setOpenId}
             >
               <div className="muted mt4" style={{ fontSize: 12 }}>
-                Commit rating behind this cow. Backing {cow.backing}
-                {capInfo ? ` · you can hold at most ${capInfo.cap} (one account caps at 20%)` : ""} ·
+                Commit rating behind this cow. Backing {cow.backing} ·
                 care pool {fmtEth(cow.carePool)} · funding need {cow.fundingNeed}.
                 Longer locks ramp conviction; early exits burn rating.
               </div>
@@ -1310,7 +1286,7 @@ export default function CowDetail({ cow, contracts, account, rep, onBack, refres
                   Waiting for the transaction… (cancel it in MetaMask to abort)
                 </div>
               ) : null}
-              <VoiceMeter contracts={contracts} account={account} rep={rep} notify={notify} />
+              <VoiceMeter contracts={contracts} account={account} rep={rep} />
             </More>
 
             <More

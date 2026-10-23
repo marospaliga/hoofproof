@@ -17,29 +17,32 @@ evidence & charitable causes (Phase C):
 
 ## The idea in one paragraph
 
-Anyone can mint a cow. The cow is inert until several independent, rated people
-commit their reputation to it. Real-world facts about the cow (it exists, it's
-cared for, it was sold, it died, its funding need fell to zero, someone worked
-real hours on it) are asserted by people who back their word with a bonded
-score — reputation as collateral. Ratings are **positive-only thumbs-up**, and a
-vote is simply **rating spent**: the amount you put behind a cow is the amount it
-gains, so wanting more influence means giving more of your own score. Real care
-work earns **sweat equity** scaled by the project's rating. Gains to reputation
-are capped so only steady, patient work compounds; losses are uncapped so lies
-hurt immediately. Spendable **Rajas** action-credits, a **GeneralPool** care +
-gas treasury and the **HerdCouncil** (reputation-weighted proposals per herd)
-make the collective layer concrete. Eventually a cow whose funding need stays at
-zero becomes **SelfSustaining** and graduates out of the system's care.
+Anyone can mint a cow, and the record is live at once. Real-world facts about the
+cow (it exists, it's cared for, it was sold, it died, its funding need fell to
+zero, someone worked real hours on it) are asserted by people who back their
+word with a bonded score — reputation as collateral. Ratings are **positive-only
+thumbs-up**, and a vote is simply **rating spent**: the amount you put behind a
+cow is the amount it gains, so wanting more influence means spending more of
+your own score. A vote is permanent; rating is democracy backed by blockchain.
+Real care work earns **sweat equity** scaled by the project's rating. Gains to
+reputation are capped so only steady, patient work compounds; losses are
+uncapped so lies hurt immediately. Two independent facts replace the old status
+ladder: **verified** (an executed care, revenue, sale or death claim proves a
+real animal) and **deceased** (the animal has died; the record becomes a
+memorial but keeps working). Spendable **Rajas** action-credits, a
+**GeneralPool** charitable treasury with an automatic rating-weighted care round,
+and the **HerdCouncil** (reputation-weighted proposals per herd) make the
+collective layer concrete.
 
 ## Contracts (contracts/)
 
 | Contract | Job |
 |---|---|
 | `Stasis.sol` | Non-transferable reputation ledger. Gains capped at +10%/period, losses uncapped, genesis awards decay over a year, idle accounts decay lazily, bonded score is protected from decay. |
-| `CowNFT.sol` | ERC-721 cow records. Permissionless mint, born **Inert**; status (Inert → Active → SelfSustaining / Memorial) moves only through the rating engine. Herds, correctable metadata CID. |
-| `CowRating.sol` | The engine: conviction staking (with early-exit penalty), concentration caps, the **rating-spend vote** (cows + images + posts, content folds into the cow's rating; the amount you give is the amount the cow gains), **sweat-equity rewards** scaled by the project's rating, an active-rater registry that the cycle credit reads, herd bonuses, the funding-need lifecycle, and the rated transfer handshake. |
-| `Attestation.sol` | Staked testimony: bonded claims about the real world. Quorum executes (death → Memorial, sale → offline transfer, funding → lifecycle, **Labor** → sweat-equity award). Disputes are resolved by the pilot operator in the MVP. |
-| `GeneralPool.sol` | The "genesis pool": **Rajas** spendable action-credits with Sattva↔Rajas conversion, the **gas rebate** for accounts with protection activity, the voluntary no-yield **care pool** per cow, the platform **value index** (backing / rating / Stasis / Rajas / active cows per epoch), **charitable causes** (GoFundMe-style escrow: anyone opens a cause, backers contribute ether, the creator releases it toward the real goal), and the **movement cycle**: `settleCycle()` measures the field's positive growth since the last settle and pays a gain-capped credit pool (`backerShareBps` to that cycle's backers pro rata by contribution, the rest to its active raters pro rata by activity) — **rating flows only when the whole field demonstrably moved, never when you pay**. |
+| `CowNFT.sol` | ERC-721 cow records. Permissionless mint, no status ladder: two independent facts (`verified`, `deceased`) are set by executed claims. Herds, correctable metadata CID. |
+| `CowRating.sol` | The engine: conviction staking (with early-exit penalty), the **permanent rating-spend vote** (cows + images + posts, content folds into the cow's rating; the amount you give is the amount the cow gains), **sweat-equity rewards** scaled by the project's rating, an active-rater registry that the cycle credit reads, herd bonuses, the funding-need lifecycle, and the rated transfer handshake. |
+| `Attestation.sol` | Staked testimony: bonded claims about the real world. Quorum executes (first care/revenue/sale/death → `verified`, death → `deceased`, sale → offline transfer, funding → lifecycle, **Labor** → sweat-equity award). Disputes are resolved by the pilot operator in the MVP. |
+| `GeneralPool.sol` | The "genesis pool": **Rajas** spendable action-credits with Sattva↔Rajas conversion, the **gas rebate** for accounts with protection activity, the voluntary no-yield **care pool** per cow, the platform **value index** (backing / rating / Stasis / Rajas / backed cows per epoch), **charitable causes** (GoFundMe-style escrow: anyone opens a cause, backers contribute ether, the creator releases it toward the real goal), the **automatic care round** (`runCareRound()` earmarks a share of uncommitted ETH pro rata to each eligible cow's rating, capped by attested need), and the **movement cycle**: `settleCycle()` measures the field's positive growth since the last settle and pays a gain-capped credit pool (`backerShareBps` to that cycle's backers pro rata by contribution, the rest to its active raters pro rata by activity) — **rating flows only when the whole field demonstrably moved, never when you pay**. |
 | `HerdCouncil.sol` | Reputation-weighted proposals per herd: off-chain body → on-chain hash, member votes weighted by the rating of their own cows in the herd, on-chain tally with execution signals only. |
 | `interfaces/ITransferValidator.sol` | The seam CowNFT uses to ask CowRating whether a transfer may happen. |
 
@@ -51,7 +54,7 @@ zero becomes **SelfSustaining** and graduates out of the system's care.
        award/          |   |      bond/slash/
       slash/bond       |   |      unbond
                        |   |
-                 CowRating <-> CowNFT  (moves status, validates transfers)
+                 CowRating <-> CowNFT  (verification, death, validates transfers)
                   ^  ^  ^
                   |  |  |  attestations + bonds      Rajas / rebates / index
                   |  |  +-------------------- Attestation     |
@@ -75,9 +78,9 @@ CowRating.setWiring(CowNFT, Attestation)
 ```bash
 npm install
 npm install --prefix frontend
-npm test                 # 129 tests: score math, caps, staking, disputes, lifecycle,
-                         # rating-spend votes, sweat equity, pool, council,
-                         # causes + cycle credit, beta clock, curriculum
+npm test                 # 131 tests: score math, caps, staking, disputes, life facts,
+                         # permanent votes, sweat equity, automatic care round, pool,
+                         # council, causes + cycle credit, beta clock, curriculum
 
 npm run dev              # one command: hardhat node + agora server + vite dev server
 # in a second terminal, the first time only:
@@ -134,23 +137,23 @@ events, same revert messages. Only the deadlines move.
 
 | window | production | beta | what it gates |
 |---|---|---|---|
-| `lockPeriod` | 30d | 1d | how long a rating lien stays locked before you can pull it out |
+| `lockPeriod` | 30d | 1d | how long a stake stays locked before you can pull it out |
 | `needPeriod` | 30d | 1d | how often a funding need may be re-recorded |
 | `careWindow` / `laborWindow` / `needWindow` | 90d | 3d | how long a protection anchor stays warm |
 | `headStartWindow` | 30d | 1d | how long a provisional head start waits for corroboration |
-| `laborLockPeriod` | 30d | 1d | the lock on a labour commitment |
+| `laborLockPeriod` | 30d | 1d | the lock on a releasable labour commitment |
 | `tierCommit1` / `tierCommit2` | 90d / 180d | 3d / 6d | the conviction ramp to the two longer tiers |
 | `contentDormantWindow` | 180d | 6d | when a thread goes quiet |
 | `momentumDecay` | 90d | 3d | the activity ledger's slide |
 | `genesisLife` / `idleGrace` / `idleDecayWindow` | 365d / 180d / 365d | 12d 4h / 6d / 12d 4h | how fast a reputation fades |
 | `cyclePeriod` | 6h | 12m | the movement cycle |
+| `carePeriod` | 7d | 5h 36m | how often the automatic care round may run |
 | `gasRebatePeriod` | 7d | 5h 36m | the gas rebate cooldown |
 | `fastPathDelay` / `challengeWindow` | 48h / 3d | 1h 36m / 2h 24m | moderation: the dominance fast path and the challenge window |
 | `minDuration` / `maxDuration` (council) | 1d / 30d | 48m / 1d | how long a proposal lives |
 
 Every beta number is exactly the production number divided by 30 — **one beta
-day is one production month**. `zeroStreakRequired` (three periods) is a
-count, not a duration, so it stays where it is.
+day is one production month**.
 
 ```bash
 npm run timings            # what the chain is running on right now
@@ -221,23 +224,25 @@ These are the design's spine; every contract enforces a slice of them:
    bootstrap gets a small fixed floor so new accounts can start.
 3. **Lying is expensive.** Attestation bonds are destroyed on a refuted claim.
    There is no upside to a false claim and a real downside to a true one.
-4. **No one can corner a cow.** A single account can hold at most 20% of a
-   cow's staked rating, so a cow only activates through a crowd of raters.
-5. **Commitment is real.** Pulling rating out before the lock period costs up
+4. **No one can corner a cow — and no one needs a crowd to start one.** There is
+   no concentration cap: one account may back a cow with all its free rating.
+   `Stasis.bond` still prevents spending rating you do not hold, so backing stays
+   paid for; it just does not require a committee.
+5. **Commitment is real.** Pulling a *stake* out before the lock period costs up
    to half of it. This is what makes "conviction" mean something.
-6. **Rating is fluid, not per-cow cooldowns.** Nothing stops you rating the
-   same cow twice, and there is no per-account meter to refill: a vote costs
-   rating, and you get it back if you release the vote. Steady curators stay
-   loud because they keep earning, not because the system rations anyone.
+6. **Rating is fluid, not per-cow cooldowns.** Nothing stops you rating the same
+   cow twice, and there is no per-account meter to refill: a vote permanently
+   spends rating. Steady curators stay loud because they keep earning, not
+   because the system rations anyone.
 7. **Authenticity compounds.** Ratings on a cow's images and posts are ratings
    of the cow — a well-documented project accumulates proven authenticity.
 8. **Sweat is rated, not metered.** The same attested hour pays more on a
    well-rated project (`hours × base rate × cow rating / reference`), so people
    are steered toward real care, not hour-farming.
-9. **A vote is rating spent.** The amount you put behind a cow is exactly the
-   rating it gains — there is no size ladder, no multiplier and no dilution.
-   Wanting more influence means spending more of your own score, and `unvote`
-   hands it straight back. Protection activity qualifies you for the
+9. **A vote is rating spent — permanently.** The amount you put behind a cow is
+   exactly the rating it gains — there is no size ladder, no multiplier, no
+   dilution and no unvote. Wanting more influence means spending more of your own
+   score, and once spent it stays spent. Protection activity qualifies you for the
    **GeneralPool gas rebate** — the platform, not the protocol, subsidises fees.
 10. **Money never votes.** HerdCouncil weight is your cows' rating,
     and Rajas buys perks and fee relief, never influence.
@@ -251,6 +256,11 @@ These are the design's spine; every contract enforces a slice of them:
     ecosystem grew and thanks that cycle's contributors *and* active raters
     from a gain-capped pool — a big donation only buys a share of a gift that
     exists only if the field actually moved.
+14. **Charity is allocated by rating, not by money.** Once per care period the
+    pool earmarks a fixed share of its uncommitted ETH across verified, living
+    cows pro rata to their rating, capped by each cow's attested need. Rating
+    decides who is a good recipient; the need decides how much is enough;
+    leftover stays in the pool.
 
 ## Where the MVP plays it safe (pilot-era changes)
 

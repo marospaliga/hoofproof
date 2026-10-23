@@ -2,8 +2,6 @@ const { expect } = require("chai");
 const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { deploySystem, grantGenesis, mint } = require("./fixtures");
 
-const Status = { Inert: 0n, Active: 1n, SelfSustaining: 2n, Memorial: 3n };
-
 describe("CowNFT", function () {
   async function fixture() {
     const sys = await deploySystem();
@@ -11,13 +9,14 @@ describe("CowNFT", function () {
     return sys;
   }
 
-  it("is permissionless: anyone can mint, and it starts Inert", async function () {
+  it("is permissionless: anyone can mint, and it is live at once", async function () {
     const { cowNFT, stranger } = await loadFixture(fixture);
 
     const tokenId = await mint(cowNFT, stranger, "ipfs://meta");
 
     expect(await cowNFT.ownerOf(tokenId)).to.equal(stranger.address);
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Inert);
+    expect(await cowNFT.isVerified(tokenId)).to.equal(false);
+    expect(await cowNFT.isDeceased(tokenId)).to.equal(false);
   });
 
   it("keeps descriptive data correctable rather than frozen forever", async function () {
@@ -33,14 +32,14 @@ describe("CowNFT", function () {
     expect(cow.metadataCID).to.equal("ipfs://v2");
   });
 
-  it("only the rating engine can move status", async function () {
+  it("only the rating engine can mark proof of hoof", async function () {
     const { cowNFT, stranger } = await loadFixture(fixture);
     const tokenId = await mint(cowNFT, stranger, "ipfs://meta");
 
     await expect(
-      cowNFT.connect(stranger).markActive(tokenId)
+      cowNFT.connect(stranger).markVerified(tokenId)
     ).to.be.revertedWithCustomError(cowNFT, "OnlyRatingEngine");
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Inert);
+    expect(await cowNFT.isVerified(tokenId)).to.equal(false);
   });
 
   it("tracks herd membership", async function () {
@@ -76,17 +75,19 @@ describe("CowNFT", function () {
     expect(before - (await stasis.effectiveScore(buyer.address))).to.equal(227);
   });
 
-  it("refuses to move a Memorial cow", async function () {
-    const { cowNFT, owner, alice, buyer } = await loadFixture(fixture);
+  it("records death without freezing the record", async function () {
+    const { cowNFT, stasis, owner, alice, buyer } = await loadFixture(fixture);
     const tokenId = await mint(cowNFT, alice, "ipfs://meta");
 
-    // The operator records the real cow's death.
-    await cowNFT.connect(owner).markMemorial(tokenId);
-    expect(await cowNFT.statusOf(tokenId)).to.equal(Status.Memorial);
+    // The operator records the real cow's death. It is a fact, not a lock.
+    await cowNFT.connect(owner).markDeceased(tokenId);
+    expect(await cowNFT.isDeceased(tokenId)).to.equal(true);
+    expect(await cowNFT.isVerified(tokenId)).to.equal(true);
 
-    await expect(
-      cowNFT.connect(alice).transferFrom(alice.address, buyer.address, tokenId)
-    ).to.be.revertedWithCustomError(cowNFT, "IsMemorial");
+    const before = await stasis.effectiveScore(buyer.address);
+    await cowNFT.connect(alice).transferFrom(alice.address, buyer.address, tokenId);
+    expect(await cowNFT.ownerOf(tokenId)).to.equal(buyer.address);
+    expect(before - (await stasis.effectiveScore(buyer.address))).to.equal(227);
   });
 
   it("pins the rating engine so it cannot be swapped after launch", async function () {

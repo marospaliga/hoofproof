@@ -36,7 +36,6 @@ const COW_RATING_FIELDS = [
   "tierCommit2",
   "momentumDecay",
   "contentDormantWindow",
-  "zeroStreakRequired",
 ];
 
 async function attach(deploy) {
@@ -59,6 +58,7 @@ async function readWindows(c) {
   out.idleDecayWindow = Number(await c.stasis.idleDecayWindow());
   out.cyclePeriod = Number(await c.generalPool.cyclePeriod());
   out.gasRebatePeriod = Number(await c.generalPool.gasRebatePeriod());
+  out.carePeriod = Number(await c.generalPool.carePeriod());
   out.fastPathDelay = Number(await c.moderation.fastPathDelay());
   out.challengeWindow = Number(await c.moderation.challengeWindow());
   out.minDuration = Number(await c.herdCouncil.minDuration());
@@ -100,6 +100,11 @@ async function applyProfile(name, c, deployer) {
       .setGasRebate(rebateBase, p.generalPool.gasRebatePeriod)
   ).wait();
 
+  const careTithe = await c.generalPool.careTitheBps();
+  await (
+    await c.generalPool.connect(deployer).setCareRound(careTithe, p.generalPool.carePeriod)
+  ).wait();
+
   const [dominance, minVoters] = await Promise.all([
     c.moderation.dominanceBps(),
     c.moderation.minDistinctVoters(),
@@ -121,7 +126,7 @@ async function applyProfile(name, c, deployer) {
 function printTable(before, after, profileName) {
   const rows = Object.keys(after);
   const width = Math.max(...rows.map((r) => r.length));
-  const show = (v, key) => (key === "zeroStreakRequired" ? `${v} periods` : fmtDuration(v));
+  const show = (v) => fmtDuration(v);
   console.log("");
   console.log(`  ${"window".padEnd(width)}  ${"before".padStart(10)}  ${"after".padStart(10)}`);
   console.log(`  ${"-".repeat(width)}  ${"-".repeat(10)}  ${"-".repeat(10)}`);
